@@ -1,0 +1,7 @@
+.env
+.pwiki/teams-profile/
+.pwiki/teams-debug/
+.pwiki/tracker-session.json
+.obsidian/workspace*.json
+.DS_Store
+Thumbs.db

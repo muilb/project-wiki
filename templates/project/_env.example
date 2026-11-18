@@ -1,0 +1,4 @@
+# Sao chép thành .env rồi điền. KHÔNG commit .env.
+TRACKER_PASSWORD=
+JIRA_EMAIL=
+JIRA_TOKEN=

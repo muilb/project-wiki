@@ -1,0 +1,52 @@
+# Nguồn của wiki dự án "{{PROJECT_NAME}}". Mật khẩu / token đặt trong .env (không commit).
+project:
+  name: "{{PROJECT_NAME}}"
+  timezone: Asia/Ho_Chi_Minh
+
+git:
+  autoCommit: true # pwiki collect / tracker push tự commit
+
+# project-tracker: bỏ cả mục nếu dự án không báo cáo lên tracker
+tracker:
+  url: https://your-tracker.example.com # địa chỉ web của tracker (đọc /config.json)
+  projectId: P01
+  email: pl@example.com # tài khoản tracker của người duyệt (PL)
+
+sources: []
+# Bỏ dấu # ở các nguồn cần dùng. "name" là tên thư mục trong raw/.
+#
+#  - name: teams-spec
+#    type: teams
+#    conversations:
+#      - name: 仕様確認
+#        url: https://teams.microsoft.com/l/channel/19%3A...%40thread.tacv2/...
+#    lookbackDays: 14
+#    browser: msedge # msedge | chrome | chromium
+#
+#  - name: app
+#    type: git
+#    repo: ../app # bản clone trên máy; chỉ đọc commit, không chép code
+#    branch: main
+#    fetch: true
+#    since: 2026-10-01
+#    ticketPattern: "[A-Z][A-Z0-9_]+-\\d+"
+#    ignorePaths: [package-lock.json, dist/]
+#
+#  - name: jira
+#    type: jira
+#    baseUrl: https://your-company.atlassian.net
+#    deployment: cloud # cloud: JIRA_EMAIL + JIRA_TOKEN | server: JIRA_TOKEN là personal access token
+#    jql: project = ABC
+#    lookbackDays: 90
+#
+#  - name: specs
+#    type: files
+#    path: "\\\\fileserver\\Share\\Project\\ABC\\設計書" # hoặc thư mục OneDrive/SharePoint đã đồng bộ
+#    extensions: [.xlsx, .docx, .md, .pdf]
+#    exclude: ["~$", "/old/", "/archive/"]
+#    converters:
+#      .pdf: markitdown {file} # cần cài: pip install markitdown
+#
+#  - name: backlog
+#    type: command # nguồn tuỳ biến: chương trình in JSON lines (xem README)
+#    command: python scripts/backlog.py

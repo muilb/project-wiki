@@ -1,0 +1,38 @@
+{
+  "name": "project-wiki",
+  "version": "0.1.0",
+  "description": "Khung LLM Wiki (theo pattern của Karpathy) dùng chung cho nhiều dự án: thu thập nguồn (Teams, git, Jira, file…) vào raw/, Claude Code biên soạn wiki/, đẩy những gì cần theo dõi sang project-tracker.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "pwiki": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "templates",
+    "schema"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
+  },
+  "optionalDependencies": {
+    "exceljs": "^4.4.0",
+    "mammoth": "^1.13.0",
+    "playwright": "^1.65.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}
