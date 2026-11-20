@@ -43,6 +43,21 @@ describe('init / upgrade', () => {
     expect(r.kept).toEqual(['.claude/commands/lint.md']);
     expect(() => init(root, 'x', quiet)).toThrow(/đã có/);
   });
+
+  it('keeps every text file LF via .gitattributes, appending to one the vault already has', () => {
+    const root = tmp('wiki-');
+    init(root, 'Demo', quiet);
+    expect(readFileSync(join(root, '.gitattributes'), 'utf8')).toContain('* text=auto eol=lf');
+    expect(git(root, ['ls-files', '.gitattributes'])).toContain('.gitattributes'); // committed by init
+
+    // A vault created before this change, with its own attributes and no trailing newline.
+    writeFileSync(join(root, '.gitattributes'), '*.pdf binary');
+    const logs: string[] = [];
+    expect(upgrade(root, (m) => logs.push(m)).written).toContain('.gitattributes');
+    expect(readFileSync(join(root, '.gitattributes'), 'utf8')).toBe('*.pdf binary\n# pwiki: LF cho mọi file text, bất kể core.autocrlf\n* text=auto eol=lf\n');
+    expect(logs.join('\n')).toContain('git add --renormalize .');
+    expect(upgrade(root, quiet).written).not.toContain('.gitattributes'); // idempotent
+  });
 });
 
 describe('init without git identity', () => {
