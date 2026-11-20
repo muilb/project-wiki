@@ -122,7 +122,7 @@ Giới hạn trường dữ liệu **bắt chước `api/src/schemas.ts`** của
 - [ ] Mở `03_Dashboard.base`, `graph.json`, `app.json` trong **Obsidian thật**.
 - [ ] Chạy `/ingest`, `/sync-tracker`, `/lint`, `/weekly` trong Claude Code với dữ liệu thật, rồi chỉnh SCHEMA theo kết quả.
 - [ ] Chạy trên **Windows**: ổ mạng UNC, Task Scheduler, `browser: msedge`.
-- [ ] **Push lên GitHub.** Phiên trước bị 403 vì Claude GitHub App chưa có quyền với `muilb/project-wiki`.
+- [x] **Push lên GitHub** (`main`) và thêm GitHub Actions (`.github/workflows/ci.yml`): typecheck, test, build trên ubuntu và windows.
 
 **Cần xin phép:** hỏi IT hoặc quản lý về việc tự động đọc Teams, và việc đưa nội dung trao đổi với khách hàng cho LLM.
 
@@ -147,7 +147,7 @@ Phân tích dựa trên ảnh, không có file gốc:
 
 ## 7. Việc tiếp theo (gợi ý thứ tự)
 
-1. **Đưa repo lên GitHub** (xem mục 8), thêm GitHub Actions chạy `npm test` và `npm run typecheck` trên ubuntu và windows.
+1. ~~**Đưa repo lên GitHub**, thêm GitHub Actions chạy `npm test` và `npm run typecheck` trên ubuntu và windows.~~ Đã xong. Theo dõi lần chạy đầu trên windows và sửa nếu có test phụ thuộc hệ điều hành.
 2. **Chạy thử trên một dự án thật nhỏ:**
    - `pwiki init`;
    - khai báo nguồn git và files;
