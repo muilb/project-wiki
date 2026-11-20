@@ -5,7 +5,16 @@ import { commandAdapter } from '../src/adapters/command.js';
 import { filesAdapter, quotePath, rawPathFor } from '../src/adapters/files.js';
 import { gitAdapter } from '../src/adapters/git.js';
 import { adfToText, jiraAdapter } from '../src/adapters/jira.js';
-import { mergeDay, parseMessages, writeConversation } from '../src/adapters/teams.js';
+import {
+  chatServiceAuth,
+  conversationIdOf,
+  fetchConversation,
+  mergeDay,
+  messagesUrl,
+  parseMessages,
+  webAppUrl,
+  writeConversation,
+} from '../src/adapters/teams.js';
 import { parseConfig, type CommandSource, type FilesSource, type GitSource, type JiraSource, type TeamsSource } from '../src/config.js';
 import { commit, ctxFor, gitRepo, tmp } from './helpers.js';
 
@@ -271,6 +280,53 @@ describe('teams', () => {
     writeConversation(ctx, '仕様 確認', 'https://teams/x', msgs);
     expect(ctx.raw.list()).toEqual(['仕様-確認/2026-11-17.md', '仕様-確認/2026-11-18.md']);
     expect(ctx.raw.read('仕様-確認/2026-11-18.md')!.frontmatter).toMatchObject({ conversation: '仕様 確認', date: '2026-11-18' });
+  });
+
+  it('finds the thread id in chat / channel links and opens deep links in the web app', () => {
+    const chat = 'https://teams.cloud.microsoft/l/chat/19%3Aabc123%40thread.v2/conversations?context=%7B%22contextType%22%3A%22chat%22%7D';
+    expect(conversationIdOf(chat)).toBe('19:abc123@thread.v2');
+    expect(conversationIdOf('https://teams.microsoft.com/l/channel/19%3Axyz%40thread.tacv2/%E4%BB%95%E6%A7%98?groupId=g')).toBe('19:xyz@thread.tacv2');
+    expect(conversationIdOf('https://teams.microsoft.com/v2/#/conversations/19:a-b_c@unq.gbl.spaces?ctx=chat')).toBe('19:a-b_c@unq.gbl.spaces');
+    expect(conversationIdOf('https://teams.live.com/l/invite/FBAxyz')).toBeUndefined();
+    expect(webAppUrl(chat)).toBe(chat.replace('/l/chat/', '/_#/l/chat/'));
+    expect(webAppUrl('https://teams.microsoft.com/v2/#/conversations/19:x@thread.v2')).toBe('https://teams.microsoft.com/v2/#/conversations/19:x@thread.v2');
+  });
+
+  it('keeps only the chat service base and auth headers of a Teams web request', () => {
+    const a = chatServiceAuth('https://teams.cloud.microsoft/api/chatsvc/jp/v1/users/ME/properties', {
+      authorization: 'Bearer t',
+      clientinfo: 'os=windows',
+      cookie: 'c=1',
+      'user-agent': 'x',
+    });
+    expect(a).toEqual({ base: 'https://teams.cloud.microsoft/api/chatsvc/jp/v1', headers: { authorization: 'Bearer t', clientinfo: 'os=windows' } });
+    expect(chatServiceAuth('https://teams.cloud.microsoft/api/chatsvc/jp/v1/users/ME/properties', {})).toBeUndefined();
+    expect(chatServiceAuth('https://teams.cloud.microsoft/api/mt/apac/beta/me', { authorization: 'Bearer t' })).toBeUndefined();
+  });
+
+  it('pages back through the chat service until `since`', async () => {
+    const base = 'https://h/api/chatsvc/jp/v1';
+    const msg = (id: string, t: string) => ({ id, originalarrivaltime: t, messagetype: 'Text', imdisplayname: 'A', content: id });
+    const pages: Record<string, unknown> = {
+      first: { messages: [msg('m4', '2026-11-19T00:00:00Z'), msg('m3', '2026-11-18T00:00:00Z')], _metadata: { backwardLink: 'https://h/p2' } },
+      'https://h/p2': { messages: [msg('m2', '2026-11-10T00:00:00Z'), msg('m1', '2026-11-01T00:00:00Z')], _metadata: { backwardLink: 'https://h/p3' } },
+      'https://h/p3': { messages: [msg('m0', '2026-10-01T00:00:00Z')] },
+    };
+    const asked: string[] = [];
+    const get = async (url: string) => {
+      asked.push(url);
+      return { status: 200, json: pages[url.startsWith(base) ? 'first' : url] };
+    };
+    const since = new Date('2026-11-05T00:00:00Z');
+    const msgs = await fetchConversation(get, base, '19:abc@thread.v2', since);
+    expect(msgs.map((m) => m.id).sort()).toEqual(['m2', 'm3', 'm4']);
+    // stops at the page that reaches `since`: p3 is never requested
+    expect(asked).toEqual([messagesUrl(base, '19:abc@thread.v2', since), 'https://h/p2']);
+    expect(asked[0]).toContain('/conversations/19%3Aabc%40thread.v2/messages?');
+
+    await expect(fetchConversation(async () => ({ status: 404 }), base, '19:x@thread.v2', since)).rejects.toThrow(/không tìm thấy/);
+    await expect(fetchConversation(async () => ({ status: 401 }), base, '19:x@thread.v2', since)).rejects.toThrow(/HTTP 401/);
+    expect(await fetchConversation(async () => ({ status: 200, json: { messages: [] } }), base, '19:x@thread.v2', since)).toEqual([]);
   });
 });
 
