@@ -25,7 +25,7 @@ Kết hợp với **[project-tracker](https://github.com/muilb/project-tracker)*
 | 1 | **Mỗi dự án một vault (git repo private). Tracker dùng chung cho nhiều dự án.** Chỉ những gì cần theo dõi hoặc cảnh báo mới đẩy sang tracker | Tracker giữ "trạng thái" ở mức quản lý, wiki giữ "tri thức" chi tiết |
 | 2 | **AI chỉ đề xuất, PL duyệt** rồi mới gửi tracker (`tracker/outbox/` → `/sync-tracker`) | Cùng tinh thần "AI chỉ đề xuất" của project-tracker |
 | 3 | **Nguồn cắm thêm được:** Teams, git, Jira, file (file server, OneDrive), inbox, `command` (script tuỳ biến in JSON lines) | Mỗi dự án dùng công cụ khác nhau. Framework không hard-code |
-| 4 | **Teams không cần bot hay quyền admin:** Playwright với phiên đăng nhập lưu sẵn, bắt **JSON chatsvc** mà Teams web tự tải, không đọc DOM | Không có quyền tạo bot. Graph API cần admin consent |
+| 4 | **Teams không cần bot hay quyền admin:** Playwright mở Teams web bằng phiên đăng nhập đã lưu. pwiki dùng lại header xác thực từ request chatsvc của chính Teams web, rồi tự gọi `…/conversations/<id>/messages` theo trang. Header chỉ giữ trong bộ nhớ. Không đọc DOM. Cách dự phòng là nghe response | Không có quyền tạo bot, còn Graph API cần admin consent. Chỉ nghe response thì bỏ sót tin Teams đã cache trong IndexedDB, tức gần như mọi tin từ lần mở thứ hai (đã thấy với tenant thật, 2026-11) |
 | 5 | **`raw/` là git.** Nguồn thay đổi (ticket, file) thì ghi đè, git giữ lịch sử. `/ingest` đọc **git diff** kể từ lần trước | Giải quyết mâu thuẫn "raw bất biến" với việc nguồn bị sửa. LLM biết chính xác cái gì vừa đổi |
 | 6 | **Tracker không phải sửa gì:** pwiki đăng nhập Cognito giống web (`USER_PASSWORD_AUTH` + `REFRESH_TOKEN_AUTH`), gọi đúng các REST endpoint đang có | Vẫn có kiểm tra hợp lệ, phân quyền, cảnh báo như nhập tay. Dữ liệu chat của khách không lên AWS |
 | 7 | **Hợp đồng wiki ↔ tracker** (`schema/TRACKER-CONTRACT.md`). Không đẩy từng ticket Jira, chỉ đẩy ở mức quản lý | Tránh biến tracker thành bản sao của Jira |
@@ -117,7 +117,13 @@ Giới hạn trường dữ liệu **bắt chước `api/src/schemas.ts`** của
 - adopt một bản dựng giống vault "brain-datahub": nhận đúng 14 khu vực, `moc: beside`, `type: pr`.
 
 **Chưa kiểm được:**
-- [ ] **Teams với tenant thật.** Định dạng chatsvc chưa công khai, cần chạy `--headed --record` để xem rồi chỉnh `parseMessages()`.
+- [x] **Teams với tenant thật** (2026-11-20, `teams.cloud.microsoft`, chat nhóm, vùng `jp`, `browser: chromium`, chạy ẩn). `parseMessages()` đọc đúng JSON thật, không phải sửa. Các lỗi đã sửa:
+  - link `/l/…` kẹt ở trang chọn app / web khi chạy ẩn → mở bằng `/_#/l/…`;
+  - Teams hiện trang trắng với user agent `HeadlessChrome` → bỏ chữ `Headless` khỏi user agent;
+  - tin đã cache không đi qua mạng → gọi API trực tiếp;
+  - Edge tự đăng nhập bằng tài khoản công ty gắn với Windows → dùng `chromium` với `profileDir` riêng.
+  
+  Chưa thử: kênh (`thread.tacv2`), Teams cá nhân (`teams.live.com`), chat có trên 200 tin (phân trang `backwardLink`).
 - [ ] Jira thật, cả Cloud và Server. Hiện mới test với API giả lập.
 - [ ] Mở `03_Dashboard.base`, `graph.json`, `app.json` trong **Obsidian thật**.
 - [ ] Chạy `/ingest`, `/sync-tracker`, `/lint`, `/weekly` trong Claude Code với dữ liệu thật, rồi chỉnh SCHEMA theo kết quả.
@@ -153,7 +159,7 @@ Phân tích dựa trên ảnh, không có file gốc:
    - khai báo nguồn git và files;
    - chạy `/ingest`;
    - chỉnh `schema/SCHEMA.md` và các slash command theo những gì Claude làm chưa tốt.
-3. **Teams:** `pwiki teams login` → `pwiki collect --only <teams> --headed --record` → sửa `parseMessages()` theo JSON thật, viết test với fixture đã ẩn dữ liệu.
+3. **Teams:** đã chạy được với chat nhóm thật. Còn lại: thử kênh và chat dài (phân trang), xử lý khi token hết hạn giữa chừng (hiện báo lỗi và yêu cầu `pwiki teams login`).
 4. **Jira thật.** Thêm adapter **PR** (GitHub / GitLab / Backlog) cho khu vực `changes`, dùng được cho kiểu `trivial`. Có thể thêm adapter Linear (Cycles / Teams).
 5. **Obsidian:**
    - xác nhận dashboard Bases hiển thị đúng;

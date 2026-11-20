@@ -237,16 +237,27 @@ Mỗi issue là một file `raw/jira/EMV-123.md` (trạng thái, ưu tiên, ngư
     - name: 仕様確認
       url: https://teams.microsoft.com/l/channel/19%3A…%40thread.tacv2/…   # "Copy link" của kênh
     - name: chat-khach-hang
-      url: https://teams.microsoft.com/v2/#/conversations/19:…              # địa chỉ chat trên Teams web
+      url: https://teams.cloud.microsoft/l/chat/19%3A…%40thread.v2/conversations   # link của một tin nhắn / chat
   lookbackDays: 14
   browser: msedge
 ```
 
-1. `pwiki teams login`: mở trình duyệt để bạn đăng nhập (kể cả MFA). Đóng cửa sổ là phiên được lưu vào `.pwiki/teams-profile/` (không commit).
-2. `pwiki collect`: trình duyệt chạy ẩn, mở từng kênh, cuộn lên để tải tin cũ. pwiki giữ lại **JSON mà chính Teams web tải về**, không đọc giao diện trang.
+**Lấy link:**
+- **Kênh:** chuột phải vào kênh, chọn *Copy link*.
+- **Chat:** Teams bản mới không đưa mã chat lên thanh địa chỉ. Rê chuột lên một tin, chọn **…** → *Copy link*, rồi lấy phần `19:…@thread.v2`. Link chat có dạng `https://teams.cloud.microsoft/l/chat/19%3A…%40thread.v2/conversations`.
+- pwiki chỉ cần trong URL có mã `19:…@thread…`. Link mời (`/l/invite/…`) thì không dùng được.
+
+**Chạy:**
+1. `pwiki teams login`: mở trình duyệt để bạn đăng nhập (kể cả MFA). Đóng cửa sổ là phiên được lưu vào `profileDir` (mặc định `.pwiki/teams-profile/`, không commit). Thường chỉ phải đăng nhập **một lần**, vì Teams web tự gia hạn phiên. Khi phiên hết hạn, `collect` sẽ báo để bạn chạy lại lệnh này.
+2. `pwiki collect`: trình duyệt chạy ẩn và mở Teams web. pwiki dùng lại xác thực của chính các request chat service mà Teams web gửi, rồi gọi `…/conversations/<id>/messages` để lấy tin, lùi dần từng trang tới `lookbackDays` hoặc tới lần chạy trước. Header xác thực chỉ nằm trong bộ nhớ, không ghi ra file. pwiki không đọc giao diện trang. Nếu không bắt được xác thực, hoặc URL không có mã chat, pwiki chuyển sang cách cũ: mở chat, cuộn lên và giữ các response mà Teams tải về. Cách cũ bỏ sót tin nào Teams đã có sẵn trong cache của trình duyệt.
 3. Kết quả: `raw/teams-spec/<kênh>/<ngày>.md`, mỗi tin một khối có `msg:<id>` để trích dẫn. Tin bị sửa được thay bằng bản mới, tin bị xoá được đánh dấu.
 
-> ⚠️ **Đây là phần thử nghiệm.** Định dạng JSON nội bộ của Teams không phải API công khai, có thể khác theo tenant hoặc thay đổi theo thời gian. Lần đầu nên chạy `pwiki collect --only teams-spec --headed --record` để xem trình duyệt và lưu các response vào `.pwiki/teams-debug/`. Nếu không bắt được tin nhắn nào, gửi các file đó để chỉnh `parseMessages()` trong `src/adapters/teams.ts`.
+**Khi máy gắn tài khoản công ty với Windows:**
+- Edge có thể tự đăng nhập profile của pwiki bằng tài khoản đó, kể cả khi bạn đã đăng nhập tài khoản khác. Khi đó Teams báo 「参加していないチャット…」, còn `collect` báo "không tìm thấy cuộc trò chuyện".
+- Cách xử lý: dùng `browser: chromium` (cài bằng `npx playwright install chromium` trong thư mục project-wiki) với một `profileDir` mới nằm trong `.pwiki/teams-profile/` (ví dụ `.pwiki/teams-profile/chromium`), rồi chạy lại `pwiki teams login`.
+- Mỗi tài khoản Teams là một nguồn riêng, với `profileDir` riêng.
+
+> ⚠️ **Đây là phần thử nghiệm.** Chat service của Teams không phải API công khai, có thể khác theo tenant hoặc thay đổi theo thời gian. Lần đầu nên chạy `pwiki collect --only teams-spec --record` để lưu các response vào `.pwiki/teams-debug/` (chỉ phần nội dung, không có header). Nếu tin nhắn bị thiếu hoặc sai, gửi các file đó (đã ẩn dữ liệu) để chỉnh `parseMessages()` trong `src/adapters/teams.ts`.
 >
 > Trước khi dùng, hãy hỏi ý kiến IT hoặc quản lý về việc tự động đọc Teams, và về việc gửi nội dung chat của khách hàng cho LLM.
 

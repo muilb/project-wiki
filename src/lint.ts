@@ -43,16 +43,25 @@ function listVault(root: string): string[] {
     .filter((p) => !p.split('/').some((seg) => seg.startsWith('.') && seg !== '.gitkeep'));
 }
 
+/** Marker for a wikilink with no target (`[[]]`, `[[|x]]`): always broken. */
+export const EMPTY_WIKILINK = '[[';
+
 export function extractLinks(text: string): string[] {
   const t = text.replace(CODE, '');
   const out: string[] = [];
-  for (const m of t.matchAll(WIKILINK)) if (m[1]!.trim()) out.push(`[[${m[1]!.trim()}`);
+  for (const m of t.matchAll(WIKILINK)) {
+    // Inside a markdown table Obsidian needs `[[page\|alias]]`: the `\` belongs to the escape, not the target.
+    const target = m[1]!.replace(/\\$/, '').trim();
+    if (target) out.push(`[[${target}`);
+    // `[[#heading]]` / `[[^block]]` point into the same page; anything else without a target is a broken link.
+    else if (!/^!?\[\[\s*[#^]/.test(m[0])) out.push(EMPTY_WIKILINK);
+  }
   for (const m of t.matchAll(MDLINK)) {
     const href = m[1]!;
     if (/^[a-z][a-z0-9+.-]*:/i.test(href) || href.startsWith('#')) continue;
     out.push(href.split('#')[0]!);
   }
-  return out.filter((l) => l !== '' && l !== '[[');
+  return out.filter((l) => l !== '');
 }
 
 export function lint(root: string, config: Config, now = new Date(), staleDays = 14): LintReport {
@@ -102,6 +111,10 @@ export function lint(root: string, config: Config, now = new Date(), staleDays =
     const doc = parseDoc(text);
     for (const l of extractLinks(doc.body)) {
       links++;
+      if (l === EMPTY_WIKILINK) {
+        issues.push({ check: 'broken-link', file: f, detail: '[[]] (link rỗng)' });
+        continue;
+      }
       const r = resolve(f, l);
       const shown = l.startsWith('[[') ? `${l}]]` : l;
       if (r.ambiguous) {
