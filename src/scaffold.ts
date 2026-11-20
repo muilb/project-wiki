@@ -115,6 +115,21 @@ function writeProjectFiles(dir: string, o: ProjectFilesOpts, log: (m: string) =>
   return written;
 }
 
+/**
+ * Commits what is staged. A failure (most often: no git user.name / user.email on a fresh machine)
+ * must not abort init/adopt, but must not stay silent either, or later git-diff based ingest breaks.
+ */
+function commitOrWarn(dir: string, message: string, log: (m: string) => void): void {
+  git(dir, ['commit', '--quiet', '-m', message], { allowFail: true });
+  const staged = git(dir, ['diff', '--cached', '--name-only'], { allowFail: true }).trim();
+  if (staged)
+    log(
+      `Chưa commit được (thường do git chưa có user.name / user.email). Chạy:\n` +
+        `  git config --global user.name "Tên bạn"\n  git config --global user.email "ban@example.com"\n` +
+        `rồi: git -C "${dir}" commit -m "${message}"`,
+    );
+}
+
 export function init(dir: string, name: string, log: (m: string) => void = console.log, preset: Preset = 'numbered'): void {
   if (existsSync(join(dir, CONFIG_FILE))) throw new Error(`${dir} đã có ${CONFIG_FILE}`);
   mkdirSync(dir, { recursive: true });
@@ -122,7 +137,7 @@ export function init(dir: string, name: string, log: (m: string) => void = conso
   upgrade(dir, () => {});
   if (!isGitRepo(dir)) git(dir, ['init', '--quiet', '-b', 'main']);
   git(dir, ['add', '--all']);
-  git(dir, ['commit', '--quiet', '-m', `pwiki init: ${name}`], { allowFail: true });
+  commitOrWarn(dir, `pwiki init: ${name}`, log);
   log(`Đã tạo wiki "${name}" (bố cục ${preset}) ở ${dir}.`);
 }
 
@@ -171,10 +186,10 @@ export function adopt(dir: string, name: string, log: (m: string) => void = cons
   if (!isGitRepo(dir)) {
     git(dir, ['init', '--quiet', '-b', 'main']);
     git(dir, ['add', '--all']);
-    git(dir, ['commit', '--quiet', '-m', `pwiki adopt: ${name}`], { allowFail: true });
+    commitOrWarn(dir, `pwiki adopt: ${name}`, log);
   } else {
     git(dir, ['add', '--', ...written.filter((w) => existsSync(join(dir, w)))]);
-    git(dir, ['commit', '--quiet', '-m', `pwiki adopt: ${name}`], { allowFail: true });
+    commitOrWarn(dir, `pwiki adopt: ${name}`, log);
   }
   return { detected: sections, types, moc, missing, written };
 }

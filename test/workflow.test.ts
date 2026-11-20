@@ -45,6 +45,30 @@ describe('init / upgrade', () => {
   });
 });
 
+describe('init without git identity', () => {
+  it('still creates the wiki and tells how to set user.name / user.email', () => {
+    const keys = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL', 'EMAIL', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_NOSYSTEM', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0'];
+    const saved = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+    const home = tmp('home-');
+    writeFileSync(join(home, '.gitconfig'), '');
+    for (const k of keys) delete process.env[k];
+    // useConfigOnly: git must not guess an identity from the host name.
+    Object.assign(process.env, { GIT_CONFIG_GLOBAL: join(home, '.gitconfig'), GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'user.useConfigOnly', GIT_CONFIG_VALUE_0: 'true' });
+    try {
+      const root = tmp('wiki-');
+      const logs: string[] = [];
+      init(root, 'No ID', (m) => logs.push(m));
+      expect(existsSync(join(root, 'sources.yaml'))).toBe(true);
+      expect(logs.join('\n')).toContain('git config --global user.email');
+    } finally {
+      for (const k of keys) {
+        if (saved[k] === undefined) delete process.env[k];
+        else process.env[k] = saved[k];
+      }
+    }
+  });
+});
+
 describe('collect + ingest plan', () => {
   it('commits raw/, plans changed files, continues batch by batch', async () => {
     const repo = tmp('repo-');

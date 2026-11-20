@@ -36,6 +36,8 @@ npm link             # có lệnh "pwiki"
 pwiki --version
 ```
 
+git phải có tên và email (`git config --global user.name "…"` và `user.email "…"`), vì `init`, `adopt` và `collect` đều commit. Nếu chưa có, `pwiki init` vẫn tạo vault nhưng in hướng dẫn và không commit được.
+
 Nguồn Teams dùng Edge hoặc Chrome đã cài sẵn trên máy (`browser: msedge`), nên không cần tải trình duyệt riêng. Nếu muốn dùng Chromium của Playwright: `npx playwright install chromium` và đặt `browser: chromium`.
 
 ## Tạo vault cho một dự án
@@ -326,6 +328,8 @@ npm test          # vitest: adapter, ingest plan, tracker push (API giả), init
 npm run typecheck
 npm run build
 ```
+
+GitHub Actions (`.github/workflows/ci.yml`) chạy typecheck, test và build trên ubuntu và windows mỗi khi push lên `main` hoặc mở pull request.
 
 ```
 src/
