@@ -78,11 +78,11 @@ describe('init', () => {
   it('builds a numbered vault: MOCs, index, guide, Bases dashboard, templates, Obsidian and Claude settings', () => {
     const root = tmp('vault-');
     init(root, 'IHP EMV', quiet);
-    for (const f of ['00_Index.md', '01_Cach_su_dung.md', '02_Tong_quan.md', '03_Dashboard.base', '30_Decisions/30_Decisions.md', '60_Cycles/timeline.md', '90_Reference/Glossary/Glossary.md', '_templates/issue.md', '_Inbox/.gitkeep', '.obsidian/app.json', '.obsidian/graph.json', '.obsidian/templates.json', '.claude/settings.json', '.pwiki/LAYOUT.md'])
+    for (const f of ['00_Index.md', '01_Guide.md', '02_Overview.md', '03_Dashboard.base', '30_Decisions/30_Decisions.md', '60_Cycles/timeline.md', '90_Reference/Glossary/Glossary.md', '_templates/issue.md', '_Inbox/.gitkeep', '.obsidian/app.json', '.obsidian/graph.json', '.obsidian/templates.json', '.claude/settings.json', '.pwiki/LAYOUT.md'])
       expect(existsSync(join(root, f)), f).toBe(true);
     expect(read(root, '00_Index.md')).toContain('- [[30_Decisions/30_Decisions|Quyết định]] — ');
     expect(read(root, '00_Index.md')).toContain('[[_snapshots/snapshots|Trạng thái hiện tại]]');
-    expect(read(root, '01_Cach_su_dung.md')).toContain('Thả vào `_Inbox/`');
+    expect(read(root, '01_Guide.md')).toContain('Thả vào `_Inbox/`');
 
     const base = parse(read(root, '03_Dashboard.base'));
     expect(base.views.map((v: any) => v.name)).toEqual(['Issue đang mở', 'Câu hỏi còn mở với khách', 'Quyết định', 'Chu kỳ & mốc']);
@@ -91,7 +91,7 @@ describe('init', () => {
     const app = JSON.parse(read(root, '.obsidian/app.json'));
     expect(app).toMatchObject({ userIgnoreFilters: ['raw/', 'tracker/', 'node_modules/', 'scripts/'], attachmentFolderPath: '_attachments', useMarkdownLinks: false, newLinkFormat: 'absolute' });
     const graph = JSON.parse(read(root, '.obsidian/graph.json'));
-    expect(graph.search).toBe('-path:"_snapshots/" -path:"_templates/" -path:"00_Index.md" -path:"04_Nhat_ky.md"');
+    expect(graph.search).toBe('-path:"_snapshots/" -path:"_templates/" -path:"00_Index.md" -path:"04_Log.md"');
     expect(graph.colorGroups[0]).toEqual({ query: 'path:"10_Domain/"', color: { a: 1, rgb: 0x4e79a7 } });
     const settings = JSON.parse(read(root, '.claude/settings.json'));
     expect(settings.permissions.deny).toContain('Edit(/_snapshots/**)');

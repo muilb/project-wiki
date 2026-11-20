@@ -60,10 +60,10 @@ Vault vừa tạo (preset `numbered`):
 
 ```
 00_Index.md            mục lục: chỉ trỏ tới tổng quan, dashboard, trạng thái hiện tại và các MOC
-01_Cach_su_dung.md     hướng dẫn cho thành viên
-02_Tong_quan.md        bức tranh dự án hiện tại
+01_Guide.md            hướng dẫn cho thành viên
+02_Overview.md         bức tranh dự án hiện tại
 03_Dashboard.base      Obsidian Bases: issue đang mở, câu hỏi còn treo, quyết định, chu kỳ
-04_Nhat_ky.md          nhật ký các lượt ingest / lint / báo cáo
+04_Log.md              nhật ký các lượt ingest / lint / báo cáo
 10_Domain/             spec nghiệp vụ, màn hình, API         ┐
 20_Architecture/       kiến trúc, hệ thống, môi trường       │
 30_Decisions/          quyết định (ADR)                      │ mỗi khu vực có một MOC:
@@ -94,7 +94,7 @@ pwiki adopt --name "Data Hub"
 
 | Thấy trong vault | Hiểu là |
 |---|---|
-| `00_Index.md`, `01_Cach_su_dung.md` | index, guide |
+| `00_Index.md`, `01_Guide.md` (hoặc `01_Cach_su_dung.md`) | index, guide |
 | `10_Domain/`, `20_Architecture/`, `30_Decisions/`, `40_Cycles/`, `50_Glossary/`, `60_HowTo/`, `70_PR/`, `80_Teams/`, `90_Sources/` | domain, architecture, decisions, cycles, glossary, howto, changes, people, sources |
 | `_Inbox/`, `_templates/`, `_attachments/` | inbox, templates, attachments |
 | `10_Domain.md` nằm cạnh thư mục `10_Domain/` | MOC đặt **cạnh** thư mục (`moc: beside`) |

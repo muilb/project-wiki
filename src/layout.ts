@@ -64,10 +64,10 @@ export type MocPlacement = 'inside' | 'beside';
 export const PRESETS: Record<Preset, Record<SectionKey, string>> = {
   numbered: {
     index: '00_Index.md',
-    guide: '01_Cach_su_dung.md',
-    overview: '02_Tong_quan.md',
+    guide: '01_Guide.md',
+    overview: '02_Overview.md',
     dashboard: '03_Dashboard.base',
-    log: '04_Nhat_ky.md',
+    log: '04_Log.md',
     domain: '10_Domain',
     architecture: '20_Architecture',
     decisions: '30_Decisions',
@@ -88,7 +88,7 @@ export const PRESETS: Record<Preset, Record<SectionKey, string>> = {
   },
   flat: {
     index: 'wiki/index.md',
-    guide: 'wiki/cach-su-dung.md',
+    guide: 'wiki/guide.md',
     overview: 'wiki/overview.md',
     dashboard: 'wiki/dashboard.base',
     log: 'wiki/log.md',

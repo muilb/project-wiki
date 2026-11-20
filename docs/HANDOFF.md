@@ -49,7 +49,7 @@ Kết hợp với **[project-tracker](https://github.com/muilb/project-tracker)*
 Vault mặc định (preset `numbered`):
 
 ```
-00_Index.md  01_Cach_su_dung.md  02_Tong_quan.md  03_Dashboard.base  04_Nhat_ky.md
+00_Index.md  01_Guide.md  02_Overview.md  03_Dashboard.base  04_Log.md
 10_Domain/  20_Architecture/  30_Decisions/  40_Issues/  50_QA/  60_Cycles/(timeline, Reports/)
 70_Changes/  80_Teams/  90_Reference/{Glossary,HowTo,Sources,Answers}/
 _Inbox/  _templates/  _attachments/  _snapshots/      raw/  tracker/  .pwiki/  .claude/  .obsidian/
