@@ -78,7 +78,7 @@ _templates/            mẫu trang theo type (Obsidian Templates và Claude cùn
 _attachments/          ảnh, file đính kèm
 _snapshots/            pwiki tự sinh: trạng thái hiện tại của tracker, ticket, git, Teams, tài liệu
 raw/  tracker/         nguồn thô / giao tiếp tracker (ẩn khỏi Obsidian)
-CLAUDE.md  sources.yaml  .env  .pwiki/  .claude/  .obsidian/
+CLAUDE.md  sources.yaml  .env  .gitattributes  .pwiki/  .claude/  .obsidian/
 ```
 
 `--preset flat` đặt mọi thứ trong `wiki/` (`wiki/index.md`, `wiki/decisions/`…).
@@ -103,7 +103,7 @@ pwiki adopt --name "Data Hub"
 `adopt` ghi các file sau, **không tạo hay sửa note nào**:
 - `sources.yaml`, với `layout.sections` và `layout.types` đã đoán;
 - `.pwiki/`, `.claude/`, `raw/`, `tracker/`;
-- thêm import vào cuối `CLAUDE.md` có sẵn, và bổ sung `.gitignore`.
+- thêm import vào cuối `CLAUDE.md` có sẵn, bổ sung `.gitignore` và `.gitattributes`.
 
 Kiểm tra lại `layout` trong `sources.yaml` rồi chạy `pwiki upgrade`. Lệnh này chỉ tạo những gì còn thiếu: MOC của các khu vực mới (issues, qa…), dashboard, nhật ký, template, cấu hình Obsidian. Thư mục của công cụ khác (ví dụ `runtime/`) thì đưa vào `layout.ignore`.
 
@@ -323,7 +323,7 @@ cd project-wiki && git pull && npm install && npm run build
 cd ../ihp-emv-wiki && pwiki upgrade
 ```
 
-`upgrade` ghi đè các file mang dòng `<!-- pwiki:managed … -->`, gồm `.pwiki/SCHEMA.md`, `.pwiki/TRACKER-CONTRACT.md` và `.claude/commands/*.md`. Muốn tự sửa một slash command cho riêng dự án thì xoá dòng đó, `upgrade` sẽ bỏ qua file. Lệnh này cũng sinh lại `.pwiki/LAYOUT.md` và tạo phần bố cục còn thiếu. Note đã có (`CLAUDE.md`, `sources.yaml`, các trang, MOC, template đã sửa) không bao giờ bị ghi đè.
+`upgrade` ghi đè các file mang dòng `<!-- pwiki:managed … -->`, gồm `.pwiki/SCHEMA.md`, `.pwiki/TRACKER-CONTRACT.md` và `.claude/commands/*.md`. Muốn tự sửa một slash command cho riêng dự án thì xoá dòng đó, `upgrade` sẽ bỏ qua file. Lệnh này cũng sinh lại `.pwiki/LAYOUT.md` và tạo phần bố cục còn thiếu. Nếu `.gitattributes` chưa có dòng `* text=auto eol=lf` thì lệnh nối thêm dòng này, để mọi file text là LF dù máy đặt `core.autocrlf` thế nào. Sau đó, nếu git báo file đổi chỉ vì xuống dòng, chạy `git add --renormalize .` rồi commit. Note đã có (`CLAUDE.md`, `sources.yaml`, các trang, MOC, template đã sửa) không bao giờ bị ghi đè.
 
 ## An toàn
 
