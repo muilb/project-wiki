@@ -90,6 +90,7 @@ export function renderIssue(issue: JiraIssue, cfg: JiraSource): { frontmatter: R
     url,
     type: f.issuetype?.name ?? null,
     status: f.status?.name ?? null,
+    statusCategory: f.status?.statusCategory?.key ?? null, // new | indeterminate | done
     priority: f.priority?.name ?? null,
     assignee: person(f.assignee) || null,
     due: f.duedate ?? null,

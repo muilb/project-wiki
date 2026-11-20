@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { parse } from 'yaml';
 import { z } from 'zod';
+import { ALL_SECTIONS, FILE_SECTIONS, Layout, PAGE_SECTIONS, type PageSection, type SectionKey } from './layout.js';
 
 export const CONFIG_FILE = 'sources.yaml';
 
@@ -92,6 +93,33 @@ export const sourceSchema = z.discriminatedUnion('type', [
   commandSourceSchema,
 ]);
 
+const sectionKey = z.enum(ALL_SECTIONS as [SectionKey, ...SectionKey[]]);
+
+export const layoutSchema = z
+  .object({
+    /** numbered: 00_Index, 10_Domain… at the vault root. flat: everything under wiki/. */
+    preset: z.enum(['numbered', 'flat']).default('numbered'),
+    /** wikilink: [[30_Decisions/x]] (best in Obsidian). markdown: [x](../30_Decisions/x.md) (also renders on GitHub / GitLab). */
+    links: z.enum(['wikilink', 'markdown']).default('wikilink'),
+    /** inside: 30_Decisions/30_Decisions.md. beside: 30_Decisions.md next to the folder. */
+    moc: z.enum(['inside', 'beside']).default('inside'),
+    /** Regenerate pages under the snapshots section after collect / tracker pull. */
+    snapshots: z.boolean().default(true),
+    /** Override any section path, e.g. changes: 70_PR. */
+    sections: z.partialRecord(sectionKey, z.string().min(1).regex(/^(?!.*\.\.)[^:*?"<>|]+$/, 'đường dẫn tương đối, không chứa ".."')).default({}),
+    /** Frontmatter type per section, when the vault already uses its own names, e.g. changes: pr. */
+    types: z.partialRecord(z.enum(PAGE_SECTIONS as [PageSection, ...PageSection[]]), z.string().regex(/^[a-z][a-z0-9_-]*$/)).default({}),
+    /** Vault paths (prefix) that lint leaves alone, e.g. runtime/ of another tool. */
+    ignore: z.array(z.string()).default([]),
+  })
+  .superRefine((l, ctx) => {
+    for (const k of FILE_SECTIONS) {
+      const v = l.sections[k];
+      const ext = k === 'dashboard' ? '.base' : '.md';
+      if (v && !v.endsWith(ext)) ctx.addIssue({ code: 'custom', path: ['sections', k], message: `${k} là một file ${ext}` });
+    }
+  });
+
 export const configSchema = z
   .object({
     project: z.object({
@@ -100,6 +128,7 @@ export const configSchema = z
       timezone: z.string().default('Asia/Ho_Chi_Minh'),
     }),
     git: z.object({ autoCommit: z.boolean().default(true) }).prefault({}),
+    layout: layoutSchema.prefault({}),
     tracker: z
       .object({
         /** The project-tracker web address (its /config.json gives the API and Cognito). */
@@ -134,6 +163,8 @@ export type CommandSource = z.infer<typeof commandSourceSchema>;
 export type TrackerConfig = NonNullable<Config['tracker']>;
 
 export class ConfigError extends Error {}
+
+export const layoutOf = (c: Config) => new Layout(c.layout);
 
 export function parseConfig(text: string): Config {
   let raw: unknown;

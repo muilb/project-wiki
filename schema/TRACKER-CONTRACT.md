@@ -9,7 +9,7 @@ project-tracker theo dõi **nhiều dự án** ở mức quản lý: màu sức 
 - `items`: các vấn đề, sự kiện, mốc (`id`, `type`, `title`, `priority`, `date`, `status`, `owner`…);
 - `updates`: các cập nhật gần nhất.
 
-`tracker/map.json` lưu `key wiki → id mục tracker`. **Luôn đối chiếu hai file này trước khi đề xuất**, để không tạo trùng và không đề xuất điều tracker đã biết.
+`tracker/map.json` lưu `key trang wiki → id mục tracker` (key = đường dẫn từ gốc vault, bỏ `.md`). Trạng thái tracker dạng dễ đọc có trong trang `tracker` của khu vực snapshots. **Luôn đối chiếu hai file này trước khi đề xuất**, để không tạo trùng và không đề xuất điều tracker đã biết.
 
 ## Khi nào đề xuất
 
@@ -37,10 +37,10 @@ Mỗi đề xuất là một file `tracker/outbox/<YYYYMMDD-HHmm>-<kind>-<slug>.
 ```json
 {
   "kind": "item",
-  "key": "issues/emv-timeout",
+  "key": "40_Issues/emv-timeout",
   "body": { "type": "issue", "title": "EMV決済タイムアウト（30秒）の仕様未確定", "priority": "high", "date": "2026-11-25", "status": "open" },
   "reason": "Khách hàng chưa chốt timeout, chặn việc test kết nối dự kiến 25/11",
-  "evidence": ["raw/teams/spec/2026-11-18.md msg:1731912345678", "wiki/issues/emv-timeout.md"],
+  "evidence": ["raw/teams-spec/仕様確認/2026-11-18.md msg:1731912345678", "40_Issues/emv-timeout.md"],
   "approved": false
 }
 ```
@@ -55,7 +55,7 @@ Mỗi đề xuất là một file `tracker/outbox/<YYYYMMDD-HHmm>-<kind>-<slug>.
 Quy tắc:
 - `approved` **luôn là `false`** khi bạn tạo. Chỉ đặt `true` khi con người đã đồng ý rõ ràng trong cuộc trò chuyện (`/sync-tracker`).
 - `reason` và `evidence` là bắt buộc. Evidence trỏ về raw (kèm `msg:`) và trang wiki.
-- `owner` chỉ điền khi biết chắc email tracker của người đó (ghi trong `CLAUDE.md` hoặc `people/`).
+- `owner` chỉ điền khi biết chắc email tracker của người đó (ghi trong `CLAUDE.md` hoặc trường `tracker_email` của trang người).
 - Viết `title` và `summary` bằng ngôn ngữ dùng trên tracker (ghi trong `CLAUDE.md`). Ngắn, đọc là hiểu, không cần mở wiki.
 - `health` chỉ là **đề xuất**. Đỏ = dự án đang gặp vấn đề nghiêm trọng, cần can thiệp; Vàng = có rủi ro cần theo dõi; Xanh = bình thường. Không đổi màu vì một sự cố nhỏ đã xử lý xong.
 - Mỗi lượt ingest thường chỉ ra 0–3 đề xuất. Nhiều hơn thì gộp lại.

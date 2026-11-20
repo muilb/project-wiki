@@ -6,7 +6,8 @@
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import type { Config, TrackerConfig } from '../config.js';
+import { layoutOf, type Config, type TrackerConfig } from '../config.js';
+import { snapshot } from '../snapshot.js';
 import { git, isGitRepo } from '../util.js';
 import { TrackerClient } from './client.js';
 
@@ -80,12 +81,13 @@ function requireTracker(config: Config): TrackerConfig {
   return config.tracker;
 }
 
-export async function pull(root: string, config: Config, fetchImpl: typeof fetch = fetch, now = new Date()) {
+export async function pull(root: string, config: Config, fetchImpl: typeof fetch = fetch, now = new Date(), opts: { snapshot?: boolean } = {}) {
   const t = requireTracker(config);
   const client = new TrackerClient(root, t, fetchImpl);
   const data = await client.request<any>('GET', `/projects/${encodeURIComponent(t.projectId)}`);
   mkdirSync(dir(root), { recursive: true });
   writeFileSync(dir(root, 'state.json'), `${JSON.stringify({ pulledAt: now.toISOString(), ...data }, null, 2)}\n`, 'utf8');
+  if (config.layout.snapshots && opts.snapshot !== false) snapshot(root, config, now);
   return data as { project: any; items: any[] };
 }
 
@@ -196,8 +198,11 @@ export async function push(
       log(`✗ ${entry.file}: ${(e as Error).message}`);
     }
   }
+  if (!opts.dryRun && result.sent.length && config.layout.snapshots) snapshot(root, config, now);
   if (!opts.dryRun && result.sent.length && config.git.autoCommit && isGitRepo(root)) {
     git(root, ['add', '--all', '--', TRACKER_DIR]);
+    const snapDir = layoutOf(config).path('snapshots');
+    if (existsSync(join(root, snapDir))) git(root, ['add', '--all', '--', snapDir]);
     git(root, ['commit', '--quiet', '-m', `tracker push: ${result.sent.length} đề xuất đã gửi`], { allowFail: true });
   }
   return result;

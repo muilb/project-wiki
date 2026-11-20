@@ -6,13 +6,30 @@ project:
 git:
   autoCommit: true # pwiki collect / tracker push tự commit
 
+# Bố cục vault. Đổi xong chạy "pwiki upgrade" (chỉ tạo phần còn thiếu, không ghi đè note).
+layout:
+  preset: {{PRESET}} # numbered: 00_Index, 10_Domain… ở gốc vault | flat: mọi thứ trong wiki/
+  links: wikilink # wikilink: [[…]] (Obsidian) | markdown: [..](..md) (xem được cả trên GitHub/GitLab)
+  moc: {{MOC}} # inside: 10_Domain/10_Domain.md | beside: 10_Domain.md cạnh thư mục
+  snapshots: true # sinh trang trạng thái hiện tại sau collect / tracker pull
+  sections: {{SECTIONS}}
+  types: {{TYPES}} # type trong frontmatter theo khu vực, khi vault đã dùng tên khác (vd. changes: pr)
+  ignore: [] # đường dẫn lint bỏ qua, ví dụ [runtime/]
+
 # project-tracker: bỏ cả mục nếu dự án không báo cáo lên tracker
 tracker:
   url: https://your-tracker.example.com # địa chỉ web của tracker (đọc /config.json)
   projectId: P01
   email: pl@example.com # tài khoản tracker của người duyệt (PL)
 
-sources: []
+sources:
+  # Tài liệu, biên bản, ghi chú mà thành viên thả vào inbox của vault
+  - name: inbox
+    type: files
+    path: "{{INBOX}}"
+    extensions: [.md, .txt, .csv, .docx, .xlsx]
+    exclude: ["~$", ".gitkeep"]
+
 # Bỏ dấu # ở các nguồn cần dùng. "name" là tên thư mục trong raw/.
 #
 #  - name: teams-spec

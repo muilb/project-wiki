@@ -1,16 +1,20 @@
-// pwiki init: creates a project wiki from templates/. pwiki upgrade: refreshes the framework-managed files
-// (schema, tracker contract, slash commands) and never touches the project's own files.
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, sep } from 'node:path';
+// pwiki init: a new project vault. pwiki adopt: pwiki added to an existing Obsidian vault.
+// pwiki upgrade: refreshes framework-managed files and creates what the layout still lacks.
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { CONFIG_FILE } from './config.js';
+import { CONFIG_FILE, loadConfig, type Config } from './config.js';
+import { detectSections, FILE_SECTIONS, PAGE_SECTIONS, SECTION_INFO, SUPPORT_SECTIONS, type PageSection, type Preset, type SectionKey } from './layout.js';
+import { parseDoc } from './raw.js';
 import { git, isGitRepo } from './util.js';
+import { ensureStructure } from './vault.js';
 
 export const PKG_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TEMPLATES = join(PKG_ROOT, 'templates');
 const SCHEMA = join(PKG_ROOT, 'schema');
-/** First line of a managed file. Remove it to keep your own version on upgrade. */
+/** Marks a managed file. Remove it to keep your own version on upgrade. */
 export const MANAGED = '<!-- pwiki:managed — "pwiki upgrade" ghi đè file này; xoá dòng này nếu muốn tự sửa -->';
+const IMPORTS = '@.pwiki/SCHEMA.md\n@.pwiki/LAYOUT.md\n@.pwiki/TRACKER-CONTRACT.md';
 
 function walk(dir: string): string[] {
   return readdirSync(dir, { recursive: true })
@@ -20,7 +24,12 @@ function walk(dir: string): string[] {
     .sort();
 }
 
-/** Managed files: schema/*.md → .pwiki/, templates/managed/** → same path in the wiki. */
+/** Puts the marker first, or right after a YAML frontmatter block (slash commands need it on line 1). */
+export function withMarker(text: string): string {
+  const m = /^---\r?\n[\s\S]*?\r?\n---\r?\n/.exec(text);
+  return m ? `${m[0]}${MANAGED}\n${text.slice(m[0].length)}` : `${MANAGED}\n${text}`;
+}
+
 function managedFiles(): { target: string; source: string }[] {
   return [
     ...walk(SCHEMA).map((f) => ({ target: `.pwiki/${f}`, source: join(SCHEMA, f) })),
@@ -28,13 +37,7 @@ function managedFiles(): { target: string; source: string }[] {
   ];
 }
 
-/** Puts the marker first, or right after a YAML frontmatter block (slash commands need it on line 1). */
-export function withMarker(text: string): string {
-  const fm = /^---\r?\n[\s\S]*?\r?\n---\r?\n/.exec(text);
-  return fm ? `${fm[0]}${MANAGED}\n${text.slice(fm[0].length)}` : `${MANAGED}\n${text}`;
-}
-
-export function upgrade(root: string, log = console.log): { written: string[]; kept: string[] } {
+function writeManaged(root: string): { written: string[]; kept: string[] } {
   const written: string[] = [];
   const kept: string[] = [];
   for (const { target, source } of managedFiles()) {
@@ -52,29 +55,126 @@ export function upgrade(root: string, log = console.log): { written: string[]; k
     writeFileSync(dest, text, 'utf8');
     written.push(target);
   }
-  for (const f of written) log(`  cập nhật ${f}`);
-  for (const f of kept) log(`  giữ nguyên ${f} (đã tự sửa)`);
   return { written, kept };
 }
 
-export function init(dir: string, name: string, log = console.log): void {
-  if (existsSync(join(dir, CONFIG_FILE))) throw new Error(`${dir} đã có ${CONFIG_FILE}`);
-  mkdirSync(dir, { recursive: true });
+/** Managed files + LAYOUT.md + whatever the layout needs and is missing. Notes are never overwritten. */
+export function upgrade(root: string, log = console.log, config?: Config): { written: string[]; kept: string[] } {
+  const r = writeManaged(root);
+  r.written.push(...ensureStructure(root, config ?? loadConfig(root), PKG_ROOT));
+  for (const f of r.written) log(`  ghi ${f}`);
+  for (const f of r.kept) log(`  giữ nguyên ${f} (đã tự sửa)`);
+  return r;
+}
+
+interface ProjectFilesOpts {
+  name: string;
+  preset: Preset;
+  moc: 'inside' | 'beside';
+  sections: Partial<Record<SectionKey, string>>;
+  types?: Partial<Record<PageSection, string>>;
+  inbox: string;
+}
+
+/** Files of templates/project (CLAUDE.md, sources.yaml, .gitignore…), skipping what exists. */
+function writeProjectFiles(dir: string, o: ProjectFilesOpts, log: (m: string) => void): string[] {
   const project = join(TEMPLATES, 'project');
+  const written: string[] = [];
   for (const f of walk(project)) {
-    const dest = join(dir, f.replace(/(^|\/)_gitignore$/, '$1.gitignore').replace(/(^|\/)_env\.example$/, '$1.env.example'));
+    const rel = f.replace(/(^|\/)_gitignore$/, '$1.gitignore').replace(/(^|\/)_env\.example$/, '$1.env.example');
+    const dest = join(dir, rel);
+    const text = readFileSync(join(project, f), 'utf8')
+      .replaceAll('{{PROJECT_NAME}}', o.name)
+      .replaceAll('{{PRESET}}', o.preset)
+      .replaceAll('{{MOC}}', o.moc)
+      .replaceAll('{{SECTIONS}}', Object.keys(o.sections).length ? JSON.stringify(o.sections) : '{}')
+      .replaceAll('{{TYPES}}', o.types && Object.keys(o.types).length ? JSON.stringify(o.types) : '{}')
+      .replaceAll('{{INBOX}}', o.inbox);
     if (existsSync(dest)) {
-      log(`  bỏ qua ${relative(dir, dest)} (đã có)`);
+      if (rel === '.gitignore') {
+        const cur = readFileSync(dest, 'utf8');
+        const missing = text.split('\n').filter((l) => l.trim() && !cur.split(/\r?\n/).includes(l));
+        if (missing.length) {
+          appendFileSync(dest, `${cur.endsWith('\n') ? '' : '\n'}# pwiki\n${missing.join('\n')}\n`);
+          written.push(rel);
+        }
+      } else if (rel === 'CLAUDE.md') {
+        const cur = readFileSync(dest, 'utf8');
+        if (!cur.includes('.pwiki/SCHEMA.md')) {
+          appendFileSync(dest, `${cur.endsWith('\n') ? '' : '\n'}\n## pwiki\n\nQuy ước của pwiki (khung LLM Wiki). Khi mâu thuẫn, phần riêng ở trên của file này thắng.\n\n${IMPORTS}\n`);
+          written.push(rel);
+          log('  thêm import .pwiki/* vào cuối CLAUDE.md có sẵn');
+        }
+      } else log(`  bỏ qua ${rel} (đã có)`);
       continue;
     }
     mkdirSync(dirname(dest), { recursive: true });
-    const text = readFileSync(join(project, f), 'utf8').replaceAll('{{PROJECT_NAME}}', name);
     writeFileSync(dest, text, 'utf8');
+    written.push(rel);
   }
+  return written;
+}
+
+export function init(dir: string, name: string, log: (m: string) => void = console.log, preset: Preset = 'numbered'): void {
+  if (existsSync(join(dir, CONFIG_FILE))) throw new Error(`${dir} đã có ${CONFIG_FILE}`);
+  mkdirSync(dir, { recursive: true });
+  writeProjectFiles(dir, { name, preset, moc: 'inside', sections: {}, inbox: '_Inbox' }, log);
   upgrade(dir, () => {});
   if (!isGitRepo(dir)) git(dir, ['init', '--quiet', '-b', 'main']);
   git(dir, ['add', '--all']);
   git(dir, ['commit', '--quiet', '-m', `pwiki init: ${name}`], { allowFail: true });
-  log(`Đã tạo wiki "${name}" ở ${dir}.`);
+  log(`Đã tạo wiki "${name}" (bố cục ${preset}) ở ${dir}.`);
 }
 
+/** Most common frontmatter type of the notes already in each detected section, when it is not pwiki's. */
+export function detectTypes(dir: string, sections: Partial<Record<SectionKey, string>>): Partial<Record<PageSection, string>> {
+  const out: Partial<Record<PageSection, string>> = {};
+  for (const k of PAGE_SECTIONS) {
+    const d = sections[k];
+    if (!d || !existsSync(join(dir, d))) continue;
+    const counts = new Map<string, number>();
+    for (const f of walk(join(dir, d)).filter((x) => x.endsWith('.md')).slice(0, 300)) {
+      const t = parseDoc(readFileSync(join(dir, d, f), 'utf8')).frontmatter.type;
+      if (typeof t === 'string' && /^[a-z][a-z0-9_-]*$/.test(t) && t !== 'moc') counts.set(t, (counts.get(t) ?? 0) + 1);
+    }
+    const top = [...counts].sort((a, b) => b[1] - a[1])[0];
+    const total = [...counts.values()].reduce((a, b) => a + b, 0);
+    if (top && top[0] !== SECTION_INFO[k].type && top[1] * 2 > total) out[k] = top[0];
+  }
+  return out;
+}
+
+export interface AdoptResult {
+  detected: Partial<Record<SectionKey, string>>;
+  types: Partial<Record<PageSection, string>>;
+  moc: 'inside' | 'beside';
+  missing: SectionKey[];
+  written: string[];
+}
+
+/**
+ * Adds pwiki to an existing vault: guesses the layout from the top-level folders, writes sources.yaml,
+ * .pwiki/, .claude/, raw/, tracker/ and appends to CLAUDE.md / .gitignore. Creates no note: run
+ * "pwiki upgrade" after checking layout.sections to create the sections that are still missing.
+ */
+export function adopt(dir: string, name: string, log: (m: string) => void = console.log): AdoptResult {
+  if (existsSync(join(dir, CONFIG_FILE))) throw new Error(`${dir} đã có ${CONFIG_FILE} (đã dùng pwiki)`);
+  const entries = readdirSync(dir, { withFileTypes: true })
+    .filter((e) => !e.name.startsWith('.'))
+    .map((e) => ({ name: e.name, dir: e.isDirectory() }));
+  const { sections, moc } = detectSections(entries);
+  const types = detectTypes(dir, sections);
+  const preset: Preset = entries.some((e) => e.dir && e.name === 'wiki') && !Object.keys(sections).length ? 'flat' : 'numbered';
+  const written = writeProjectFiles(dir, { name, preset, moc, sections, types, inbox: sections.inbox ?? '_Inbox' }, log);
+  written.push(...writeManaged(dir).written);
+  const missing = [...FILE_SECTIONS, ...PAGE_SECTIONS, ...SUPPORT_SECTIONS].filter((k) => !sections[k]);
+  if (!isGitRepo(dir)) {
+    git(dir, ['init', '--quiet', '-b', 'main']);
+    git(dir, ['add', '--all']);
+    git(dir, ['commit', '--quiet', '-m', `pwiki adopt: ${name}`], { allowFail: true });
+  } else {
+    git(dir, ['add', '--', ...written.filter((w) => existsSync(join(dir, w)))]);
+    git(dir, ['commit', '--quiet', '-m', `pwiki adopt: ${name}`], { allowFail: true });
+  }
+  return { detected: sections, types, moc, missing, written };
+}

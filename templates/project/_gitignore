@@ -2,6 +2,7 @@
 .pwiki/teams-profile/
 .pwiki/teams-debug/
 .pwiki/tracker-session.json
+.pwiki/ingest-pending.json
 .obsidian/workspace*.json
 .DS_Store
 Thumbs.db

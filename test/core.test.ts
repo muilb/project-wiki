@@ -86,10 +86,17 @@ sources:
   });
 
   it('parses the template sources.yaml', () => {
-    const t = readFileSync(join(import.meta.dirname, '../templates/project/sources.yaml'), 'utf8').replaceAll('{{PROJECT_NAME}}', 'Demo');
+    const t = readFileSync(join(import.meta.dirname, '../templates/project/sources.yaml'), 'utf8')
+      .replaceAll('{{PROJECT_NAME}}', 'Demo')
+      .replaceAll('{{PRESET}}', 'numbered')
+      .replaceAll('{{MOC}}', 'beside')
+      .replaceAll('{{SECTIONS}}', '{"changes":"70_PR"}')
+      .replaceAll('{{TYPES}}', '{"changes":"pr"}')
+      .replaceAll('{{INBOX}}', '_Inbox');
     const c = parseConfig(t);
     expect(c.tracker?.projectId).toBe('P01');
-    expect(c.sources).toEqual([]);
+    expect(c.layout).toMatchObject({ preset: 'numbered', moc: 'beside', links: 'wikilink', sections: { changes: '70_PR' }, types: { changes: 'pr' } });
+    expect(c.sources.map((s) => s.name)).toEqual(['inbox']);
   });
 });
 

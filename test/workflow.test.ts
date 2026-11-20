@@ -29,7 +29,7 @@ describe('init / upgrade', () => {
   it('creates a git wiki with managed files and keeps hand-edited ones', () => {
     const root = tmp('wiki-');
     init(root, 'IHP EMV', quiet);
-    for (const f of ['CLAUDE.md', 'sources.yaml', '.gitignore', '.env.example', '.claude/settings.json', '.claude/commands/ingest.md', '.pwiki/SCHEMA.md', '.pwiki/TRACKER-CONTRACT.md', 'wiki/index.md', 'tracker/map.json'])
+    for (const f of ['CLAUDE.md', 'sources.yaml', '.gitignore', '.env.example', '.claude/settings.json', '.claude/commands/ingest.md', '.pwiki/SCHEMA.md', '.pwiki/LAYOUT.md', '.pwiki/TRACKER-CONTRACT.md', '00_Index.md', 'tracker/map.json'])
       expect(existsSync(join(root, f)), f).toBe(true);
     expect(readFileSync(join(root, 'sources.yaml'), 'utf8')).toContain('name: "IHP EMV"');
     expect(readFileSync(join(root, '.claude/commands/ingest.md'), 'utf8').startsWith('---\ndescription:')).toBe(true);

@@ -5,10 +5,13 @@ import { createInterface } from 'node:readline';
 import { Writable } from 'node:stream';
 import { parseArgs } from 'node:util';
 import { collect } from './collect.js';
-import { ConfigError, findRoot, loadConfig, type TeamsSource } from './config.js';
+import { ConfigError, findRoot, layoutOf, loadConfig, type TeamsSource } from './config.js';
+import { ALL_SECTIONS, PAGE_SECTIONS, type PageSection } from './layout.js';
+import { formatLint, lint } from './lint.js';
+import { snapshot } from './snapshot.js';
 import { loadEnv } from './env.js';
 import { formatPlan, markDone, plan } from './ingest.js';
-import { init, PKG_ROOT, upgrade } from './scaffold.js';
+import { adopt, init, PKG_ROOT, upgrade } from './scaffold.js';
 import { loadState } from './state.js';
 import { SESSION_FILE, TrackerClient } from './tracker/client.js';
 import { describe, pull, push, readOutbox } from './tracker/sync.js';
@@ -17,8 +20,10 @@ import { git, isGitRepo } from './util.js';
 const HELP = `pwiki — khung LLM Wiki cho từng dự án
 
 Khởi tạo
-  pwiki init <thư mục> --name "Tên dự án"   tạo wiki mới (git repo riêng, nên để private)
-  pwiki upgrade                             cập nhật schema / slash command theo bản pwiki mới
+  pwiki init <thư mục> --name "Tên" [--preset numbered|flat]   tạo vault mới (git repo riêng, nên để private)
+  pwiki adopt [thư mục] --name "Tên"        thêm pwiki vào vault Obsidian có sẵn (đoán bố cục từ thư mục)
+  pwiki upgrade                             cập nhật schema / slash command, tạo phần bố cục còn thiếu
+  pwiki layout                              xem bố cục đang dùng
 
 Thu thập (raw/)
   pwiki collect [--only a,b] [--no-commit] [--record] [--headed]
@@ -34,6 +39,10 @@ Tracker
   pwiki tracker outbox                      liệt kê đề xuất trong tracker/outbox/
   pwiki tracker push [--dry-run]            gửi các đề xuất "approved": true
   pwiki tracker logout
+
+Wiki
+  pwiki snapshot                            sinh lại các trang trạng thái hiện tại (không dùng LLM)
+  pwiki lint [--json] [--stale 14]          kiểm tra link, trang mồ côi, MOC, frontmatter…
 
   pwiki status                              tình trạng nguồn, ingest, outbox
 `;
@@ -73,6 +82,9 @@ async function main(argv: string[]): Promise<number> {
       source: { type: 'string' },
       'dry-run': { type: 'boolean' },
       root: { type: 'string' },
+      preset: { type: 'string' },
+      json: { type: 'boolean' },
+      stale: { type: 'string' },
     },
   });
   if (!cmd || cmd === 'help' || cmd === '--help' || cmd === '-h') {
@@ -85,8 +97,21 @@ async function main(argv: string[]): Promise<number> {
   }
   if (cmd === 'init') {
     const dir = resolve(pos[0] ?? '.');
-    init(dir, String(v.name ?? pos[1] ?? 'Dự án'));
-    console.log('Tiếp theo: sửa sources.yaml và CLAUDE.md, tạo .env từ .env.example, rồi "pwiki collect".');
+    const preset = String(v.preset ?? 'numbered');
+    if (preset !== 'numbered' && preset !== 'flat') throw new ConfigError('--preset: numbered hoặc flat');
+    init(dir, String(v.name ?? pos[1] ?? 'Dự án'), console.log, preset);
+    console.log('Tiếp theo: sửa sources.yaml và CLAUDE.md, tạo .env từ .env.example, mở thư mục bằng Obsidian, rồi "pwiki collect".');
+    return 0;
+  }
+  if (cmd === 'adopt') {
+    const dir = resolve(pos[0] ?? '.');
+    const r = adopt(dir, String(v.name ?? 'Dự án'));
+    console.log(`Đã thêm pwiki vào ${dir}.`);
+    console.log(`Nhận ra ${Object.keys(r.detected).length} khu vực (MOC: ${r.moc}):`);
+    for (const [k, p] of Object.entries(r.detected)) console.log(`  ${k.padEnd(13)} → ${p}`);
+    for (const [k, t] of Object.entries(r.types)) console.log(`  type của ${k}: "${t}" (giữ theo vault)`);
+    if (r.missing.length) console.log(`Chưa có (sẽ tạo theo preset khi chạy "pwiki upgrade"): ${r.missing.join(', ')}`);
+    console.log('Tiếp theo: kiểm tra layout.sections trong sources.yaml cho đúng thư mục của bạn, rồi "pwiki upgrade".');
     return 0;
   }
 
@@ -95,8 +120,24 @@ async function main(argv: string[]): Promise<number> {
 
   switch (cmd) {
     case 'upgrade':
-      upgrade(root);
+      upgrade(root, console.log, config);
       return 0;
+    case 'layout': {
+      const L = layoutOf(config);
+      console.log(`preset: ${config.layout.preset}, links: ${L.links}, moc: ${config.layout.moc}`);
+      for (const k of ALL_SECTIONS) console.log(`  ${k.padEnd(13)} ${L.path(k)}${(PAGE_SECTIONS as string[]).includes(k) ? `   (MOC: ${L.moc(k as PageSection)})` : ''}`);
+      return 0;
+    }
+    case 'snapshot': {
+      const w = snapshot(root, config);
+      console.log(w.length ? `Cập nhật ${w.length} trang:\n${w.map((x) => `  ${x}`).join('\n')}` : 'Snapshot không đổi.');
+      return 0;
+    }
+    case 'lint': {
+      const r = lint(root, config, new Date(), Number(v.stale ?? 14));
+      console.log(v.json ? JSON.stringify(r, null, 2) : formatLint(r));
+      return 0;
+    }
     case 'collect': {
       const s = await collect(root, config, {
         only: v.only ? String(v.only).split(',').map((x) => x.trim()) : undefined,

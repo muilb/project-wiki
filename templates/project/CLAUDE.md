@@ -1,8 +1,9 @@
 # Wiki dự án: {{PROJECT_NAME}}
 
-Đây là wiki của **một** dự án, do LLM duy trì theo pattern LLM Wiki. Quy ước chung nằm ở hai file dưới đây (pwiki quản lý, cập nhật bằng `pwiki upgrade`). Phần còn lại của file này là quy ước riêng của dự án, và **ưu tiên hơn** quy ước chung.
+Đây là wiki của **một** dự án, do LLM duy trì theo pattern LLM Wiki. Quy ước chung nằm ở ba file dưới đây (pwiki quản lý, cập nhật bằng `pwiki upgrade`). Phần còn lại của file này là quy ước riêng của dự án, và **ưu tiên hơn** quy ước chung.
 
 @.pwiki/SCHEMA.md
+@.pwiki/LAYOUT.md
 @.pwiki/TRACKER-CONTRACT.md
 
 ## Thông tin dự án
