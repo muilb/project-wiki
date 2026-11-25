@@ -1,0 +1,3 @@
+# Always LF in the working tree, whatever core.autocrlf says. Templates are copied byte for byte into
+# every vault (slash commands, schema, page templates), and code / tests compare them as LF text.
+* text=auto eol=lf

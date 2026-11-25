@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { parse } from 'yaml';
 import { loadConfig, parseConfig } from '../src/config.js';
 import { detectSections, Layout } from '../src/layout.js';
-import { extractLinks, formatLint, lint } from '../src/lint.js';
+import { EMPTY_WIKILINK, extractLinks, formatLint, lint } from '../src/lint.js';
 import { RawStore } from '../src/raw.js';
 import { adopt, init, upgrade } from '../src/scaffold.js';
 import { snapshot } from '../src/snapshot.js';
@@ -256,5 +256,21 @@ describe('lint', () => {
 
   it('extracts wiki and markdown links but not code, urls or anchors', () => {
     expect(extractLinks('[[a/b|x]] ![[img.png]] [[c#h]] [t](d.md#x) [u](https://x) [#](#top) `[[no]]`\n```\n[[no2]]\n```')).toEqual(['[[a/b', '[[img.png', '[[c', 'd.md']);
+  });
+
+  it('reads table-escaped aliases and flags empty wikilinks', () => {
+    expect(extractLinks('| [[80_Teams/hoa\\|Hòa]] | [[30_Decisions/x\\#Lý do\\|why]] |')).toEqual(['[[80_Teams/hoa', '[[30_Decisions/x']);
+    expect(extractLinks('[[]] [[ ]] [[|x]] [[#heading]] [[^block]] ![[#h]]')).toEqual([EMPTY_WIKILINK, EMPTY_WIKILINK, EMPTY_WIKILINK]);
+
+    const root = tmp('vault-');
+    init(root, 'Demo', quiet);
+    write(root, '40_Issues/40_Issues.md', '---\ntype: moc\n---\n# Issues\n\n- [[40_Issues/a]] — a\n');
+    write(root, '30_Decisions/30_Decisions.md', '---\ntype: moc\n---\n# D\n\n- [[30_Decisions/b]] — b\n');
+    write(root, '30_Decisions/b.md', '---\ntype: decision\nstatus: accepted\nsources: [raw/x.md]\n---\n# B\n\n[[40_Issues/a]]\n');
+    write(root, 'raw/x.md', 'x');
+    write(root, '40_Issues/a.md', '---\ntype: issue\nstatus: open\nsources: [raw/x.md]\nupdated: 2026-11-18\n---\n# A\n\n| Ai | |\n|---|---|\n| [[30_Decisions/b\\|B]] | [[]] |\n');
+    const r = lint(root, loadConfig(root), new Date('2026-11-18T05:00:00Z'));
+    const broken = r.issues.filter((i) => i.check === 'broken-link').map((i) => `${i.file}: ${i.detail}`);
+    expect(broken).toEqual(['40_Issues/a.md: [[]] (link rỗng)']);
   });
 });

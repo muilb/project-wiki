@@ -285,6 +285,7 @@ function claudeSettings(layout: Layout): string {
           'Read(/.env)',
           'Read(/.pwiki/tracker-session.json)',
           'Read(/.pwiki/teams-profile/**)',
+          'Read(/.pwiki/teams-profile-*/**)',
         ],
       },
     },

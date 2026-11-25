@@ -68,11 +68,32 @@ function appendIgnores(file: string, wanted: string): boolean {
   return true;
 }
 
+const GITATTRIBUTES = ['* text=auto eol=lf'];
+
+/**
+ * LF for every text file of the vault, whatever core.autocrlf says: raw/ diffs, pages and slash commands
+ * then look the same on every machine. Existing .gitattributes lines are kept; only missing ones are appended.
+ */
+export function ensureGitattributes(root: string): boolean {
+  const dest = join(root, '.gitattributes');
+  const cur = existsSync(dest) ? readFileSync(dest, 'utf8') : '';
+  const have = new Set(cur.split(/\r?\n/).map((l) => l.trim()));
+  const missing = GITATTRIBUTES.filter((l) => !have.has(l));
+  if (!missing.length) return false;
+  const sep = cur && !cur.endsWith('\n') ? '\n' : '';
+  writeFileSync(dest, `${cur}${sep}# pwiki: LF cho mọi file text, bất kể core.autocrlf\n${missing.join('\n')}\n`, 'utf8');
+  return true;
+}
+
 /** Managed files + LAYOUT.md + whatever the layout needs and is missing. Notes are never overwritten. */
 export function upgrade(root: string, log = console.log, config?: Config): { written: string[]; kept: string[] } {
   const r = writeManaged(root);
   // New ignore rules (e.g. browser profiles holding sign-in cookies) must reach vaults made earlier.
   if (appendIgnores(join(root, '.gitignore'), readFileSync(join(TEMPLATES, 'project', '_gitignore'), 'utf8'))) r.written.push('.gitignore');
+  if (ensureGitattributes(root)) {
+    r.written.push('.gitattributes');
+    if (isGitRepo(root)) log('  (.gitattributes mới: nếu git báo file đổi chỉ vì xuống dòng, chạy "git add --renormalize ." rồi commit)');
+  }
   r.written.push(...ensureStructure(root, config ?? loadConfig(root), PKG_ROOT));
   for (const f of r.written) log(`  ghi ${f}`);
   for (const f of r.kept) log(`  giữ nguyên ${f} (đã tự sửa)`);
@@ -189,6 +210,7 @@ export function adopt(dir: string, name: string, log: (m: string) => void = cons
   const preset: Preset = entries.some((e) => e.dir && e.name === 'wiki') && !Object.keys(sections).length ? 'flat' : 'numbered';
   const written = writeProjectFiles(dir, { name, preset, moc, sections, types, inbox: sections.inbox ?? '_Inbox' }, log);
   written.push(...writeManaged(dir).written);
+  if (ensureGitattributes(dir)) written.push('.gitattributes');
   const missing = [...FILE_SECTIONS, ...PAGE_SECTIONS, ...SUPPORT_SECTIONS].filter((k) => !sections[k]);
   if (!isGitRepo(dir)) {
     git(dir, ['init', '--quiet', '-b', 'main']);

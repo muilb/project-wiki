@@ -1,11 +1,15 @@
 // Microsoft Teams without a bot or admin consent: a real browser (Playwright, persistent profile signed
-// in once with `pwiki teams login`) opens each conversation, and we keep the JSON the Teams web client
-// itself downloads (its chat service "messages" responses) instead of scraping the page, which changes
-// often and only renders the visible messages.
+// in once with `pwiki teams login`) opens Teams web, and we read the same chat service JSON the web client
+// uses ("…/conversations/<id>/messages"), never the page DOM, which changes often and only renders the
+// visible messages.
+//
+// Main path: reuse the auth headers of Teams web's own chat service requests and page back through each
+// conversation. Listening to the responses Teams downloads (the fallback) misses messages it already has
+// in its IndexedDB cache, i.e. almost everything after the first visit.
 //
 // raw/<source>/<conversation>/<YYYY-MM-DD>.md, one block per message, merged by message id.
-// The response format is not a public API: run `pwiki collect --only <source> --record` to save what the
-// browser received under .pwiki/teams-debug/ and adjust parseMessages() if your tenant differs.
+// The response format is not a public API: run `pwiki collect --only <source> --record` to save the
+// responses (bodies only, never headers) under .pwiki/teams-debug/ and adjust parseMessages() if needed.
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative } from 'node:path';
 import type { TeamsSource } from '../config.js';
@@ -129,75 +133,231 @@ export function writeConversation(
   return changed;
 }
 
+/** Teams thread id in a conversation link: 19:…@thread.v2 / @thread.tacv2 / @thread.skype / @unq.gbl.spaces. */
+export function conversationIdOf(url: string): string | undefined {
+  let s = url;
+  try {
+    s = decodeURIComponent(url);
+  } catch {
+    /* keep as is */
+  }
+  return /19:[^/?#&;\s]+@(?:thread\.[a-z0-9]+|unq\.gbl\.spaces)/i.exec(s)?.[0];
+}
+
+/** Deep links (https://host/l/…) stop at the "desktop app or web?" launcher, which does nothing headless.
+ *  The same link under /_#/ opens the web app directly. */
+export function webAppUrl(url: string): string {
+  return url.replace(/^(https:\/\/[^/]+)\/l\//i, '$1/_#/l/');
+}
+
+/** Chat service base (https://host/api/chatsvc/<region>/v1) and the auth headers of a request Teams web sent. */
+export function chatServiceAuth(url: string, headers: Record<string, string>): { base: string; headers: Record<string, string> } | undefined {
+  const base = /^(https:\/\/[^/]+\/api\/chatsvc\/[^/]+\/v1)\//i.exec(url)?.[1];
+  if (!base || !(headers.authorization || headers.authentication)) return undefined;
+  const keep = Object.entries(headers).filter(([k]) => /^(authorization|authentication|behavioroverride|clientinfo|x-ms-migration)$/i.test(k));
+  return { base, headers: Object.fromEntries(keep) };
+}
+
+export function messagesUrl(base: string, conversationId: string, since: Date, pageSize = 200): string {
+  return `${base}/users/ME/conversations/${encodeURIComponent(conversationId)}/messages?view=msnp24Equivalent&pageSize=${pageSize}&startTime=${since.getTime()}`;
+}
+
+export type JsonGet = (url: string) => Promise<{ status: number; json?: unknown }>;
+
+/** Pages back through the chat service (newest first, `_metadata.backwardLink`) until `since`. */
+export async function fetchConversation(
+  get: JsonGet,
+  base: string,
+  conversationId: string,
+  since: Date,
+  onPage?: (url: string, json: unknown) => void,
+  maxPages = 100,
+): Promise<TeamsMessage[]> {
+  const seen = new Map<string, TeamsMessage>();
+  let url: string | undefined = messagesUrl(base, conversationId, since);
+  for (let i = 0; url && i < maxPages; i++) {
+    const res = await get(url);
+    if (res.status === 401 || res.status === 403) throw new Error(`Teams từ chối truy cập (HTTP ${res.status}): chạy "pwiki teams login" lại`);
+    if (res.status === 404) throw new Error(`không tìm thấy cuộc trò chuyện ${conversationId} (tài khoản đang đăng nhập có ở trong chat / kênh này không?)`);
+    if (res.status < 200 || res.status >= 300) throw new Error(`chat service trả HTTP ${res.status}`);
+    onPage?.(url, res.json);
+    const raw = (res.json as any)?.messages;
+    if (!Array.isArray(raw) || !raw.length) break;
+    for (const m of parseMessages(res.json)) seen.set(m.id, m);
+    const times = raw.map((m: any) => Date.parse(m?.originalarrivaltime ?? m?.composetime ?? '')).filter((t: number) => !Number.isNaN(t));
+    if (times.length && Math.min(...times) <= since.getTime()) break;
+    const next: unknown = (res.json as any)?._metadata?.backwardLink;
+    url = typeof next === 'string' && next && next !== url ? next : undefined;
+  }
+  return [...seen.values()].filter((m) => Date.parse(m.time) >= since.getTime());
+}
+
 const LOGIN_URL = /login\.microsoftonline\.com|login\.live\.com/;
 
 export const teamsAdapter: Adapter<TeamsSource> = async (cfg, ctx) => {
   const playwright = await loadPlaywright();
   const session = await openSession(playwright, ctx.root, cfg, !ctx.options.headed, ctx.log);
+  const browser = session.context;
   const expected = expectedAccounts(cfg, ctx.env);
-  const warned = new Set<string>();
   const cursor = { ...((ctx.cursor as Record<string, { last: string }> | undefined) ?? {}) };
   const debugDir = join(ctx.root, PWIKI_DIR, 'teams-debug');
   let total = 0;
   let recorded = 0;
+  const record = (url: string, json: unknown) => {
+    if (!ctx.options.record) return;
+    mkdirSync(debugDir, { recursive: true });
+    // Only the response body (messages), never request headers / tokens.
+    writeFileSync(join(debugDir, `${Date.now()}-${++recorded}.json`), JSON.stringify({ url: url.split('?')[0], json }, null, 2));
+  };
   try {
-    for (const conv of cfg.conversations) {
-      const since = cursor[conv.name]?.last ? new Date(Date.parse(cursor[conv.name]!.last) - 3_600_000) : daysAgo(ctx.now, cfg.lookbackDays);
-      const page = await session.context.newPage();
-      const seen = new Map<string, TeamsMessage>();
-      page.on('response', async (res: any) => {
-        const url: string = res.url();
-        if (!/\/messages(\?|$)/.test(url)) return;
-        if (!(res.headers()['content-type'] ?? '').includes('json')) return;
-        try {
-          const json = await res.json();
-          if (ctx.options.record) {
-            mkdirSync(debugDir, { recursive: true });
-            writeFileSync(join(debugDir, `${Date.now()}-${++recorded}.json`), JSON.stringify({ url, json }, null, 2));
-          }
-          for (const m of parseMessages(json)) seen.set(m.id, m);
-        } catch {
-          /* not JSON after all, or body already consumed */
-        }
-      });
-      await page.goto(conv.url, { waitUntil: 'domcontentloaded', timeout: 90_000 });
-      await useWebApp(page);
+    // Main path: Teams web loads with the saved sign-in; we reuse the auth headers of its own chat-service
+    // requests to page through each conversation. Teams caches messages in IndexedDB, so listening to what it
+    // downloads misses everything already cached. The headers stay in memory and are never written.
+    let auth: ReturnType<typeof chatServiceAuth>;
+    browser.on('request', (req: any) => {
+      if (!auth) auth = chatServiceAuth(req.url(), req.headers());
+    });
+    const first = cfg.conversations[0]!;
+    const page = await browser.newPage();
+    await page.goto(webAppUrl(first.url), { waitUntil: 'domcontentloaded', timeout: 90_000 });
+    await useWebApp(page);
+    for (let i = 0; i < 60 && !auth; i++) {
       if (LOGIN_URL.test(page.url())) {
         throw new Error(`Phiên đăng nhập Teams đã hết: chạy "pwiki teams login --source ${cfg.name}"`);
       }
-      await page.waitForTimeout(8000);
-      // Before reading anything: the wrong account would silently collect nothing (or someone else's chats).
-      const check = checkAccount(cfg.name, await readAccounts(page), expected, tenantOf(conv.url));
-      if (check.error) throw new Error(check.error);
-      if (check.warning && !warned.has(check.warning)) {
-        warned.add(check.warning);
-        ctx.log(`  ⚠ ${conv.name}: ${check.warning}`);
+      await page.waitForTimeout(1000);
+    }
+    // Before reading anything: the wrong account would silently read nothing (or someone else's chats).
+    const accounts = await readAccounts(page);
+    const accountCheck = checkAccount(cfg.name, accounts, expected);
+    if (accountCheck.error) throw new Error(accountCheck.error);
+    if (accountCheck.warning) ctx.log(`  ⚠ ${accountCheck.warning}`);
+    const warned = new Set<string>();
+    if (!auth) ctx.log('  không bắt được request chat service của Teams web: chuyển sang cách nghe response');
+    const get: JsonGet = async (url) => {
+      const res = await browser.request.get(url, { headers: auth!.headers, timeout: 60_000 });
+      let json: unknown;
+      try {
+        json = await res.json();
+      } catch {
+        /* not JSON */
       }
-      // Scroll the conversation up until we reach `since` or nothing new arrives.
-      let idle = 0;
-      for (let i = 0; i < cfg.maxScrolls && idle < 3; i++) {
-        const oldest = [...seen.values()].reduce<string | undefined>((a, m) => (!a || m.time < a ? m.time : a), undefined);
-        if (oldest && Date.parse(oldest) <= since.getTime()) break;
-        const before = seen.size;
-        const vp = page.viewportSize() ?? { width: 1280, height: 800 };
-        await page.mouse.move(vp.width * 0.6, vp.height * 0.5);
-        await page.mouse.wheel(0, -4000);
-        await page.waitForTimeout(1500);
-        idle = seen.size === before ? idle + 1 : 0;
+      return { status: res.status(), json };
+    };
+
+    for (const conv of cfg.conversations) {
+      const since = cursor[conv.name]?.last ? new Date(Date.parse(cursor[conv.name]!.last) - 3_600_000) : daysAgo(ctx.now, cfg.lookbackDays);
+      const id = conversationIdOf(conv.url);
+      // Teams web signs its chat-service requests for one tenant: a link into another tenant may fail.
+      const tenantWarning = checkAccount(cfg.name, accounts, expected, tenantOf(conv.url)).warning;
+      if (tenantWarning && tenantWarning !== accountCheck.warning && !warned.has(tenantWarning)) {
+        warned.add(tenantWarning);
+        ctx.log(`  ⚠ ${conv.name}: ${tenantWarning}`);
       }
-      await page.close();
-      const msgs = [...seen.values()].filter((m) => Date.parse(m.time) >= since.getTime());
-      if (!seen.size) ctx.log(`  ${conv.name}: không bắt được tin nhắn nào (thử --headed --record để xem)`);
+      let msgs: TeamsMessage[];
+      if (auth && id) {
+        try {
+          msgs = await fetchConversation(get, auth.base, id, since, record);
+        } catch (e) {
+          // Expired sign-in fails the whole source; one missing chat should not block the others.
+          if (/HTTP 40[13]/.test((e as Error).message)) throw e;
+          ctx.log(`  ${conv.name}: ${(e as Error).message}`);
+          continue;
+        }
+      } else {
+        if (!id) ctx.log(`  ${conv.name}: không thấy mã 19:…@thread trong url, dùng cách nghe response`);
+        msgs = await listenConversation(browser, conv.url, since, cfg, record);
+      }
+      if (!msgs.length) ctx.log(`  ${conv.name}: không có tin nhắn mới`);
       total += msgs.length;
       writeConversation(ctx, conv.name, conv.url, msgs);
       const last = msgs.reduce<string | undefined>((a, m) => (!a || m.time > a ? m.time : a), cursor[conv.name]?.last);
       if (last) cursor[conv.name] = { last };
     }
+    await page.close();
   } finally {
     await session.close();
   }
   return { cursor, note: `${total} tin nhắn${recorded ? `, ghi ${recorded} response vào .pwiki/teams-debug/` : ''}` };
 };
+
+/** Fallback: open the conversation and keep the chat-service responses Teams web downloads while scrolling up. */
+async function listenConversation(
+  browser: any,
+  url: string,
+  since: Date,
+  cfg: TeamsSource,
+  record: (url: string, json: unknown) => void,
+): Promise<TeamsMessage[]> {
+  const page = await browser.newPage();
+  const seen = new Map<string, TeamsMessage>();
+  page.on('response', async (res: any) => {
+    const u: string = res.url();
+    if (!/\/messages(\?|$)/.test(u)) return;
+    if (!(res.headers()['content-type'] ?? '').includes('json')) return;
+    try {
+      const json = await res.json();
+      record(u, json);
+      for (const m of parseMessages(json)) seen.set(m.id, m);
+    } catch {
+      /* not JSON after all, or body already consumed */
+    }
+  });
+  await page.goto(webAppUrl(url), { waitUntil: 'domcontentloaded', timeout: 90_000 });
+  await useWebApp(page);
+  if (LOGIN_URL.test(page.url())) {
+    throw new Error(`Phiên đăng nhập Teams đã hết: chạy "pwiki teams login --source ${cfg.name}"`);
+  }
+  await page.waitForTimeout(8000);
+  // Scroll the conversation up until we reach `since` or nothing new arrives.
+  let idle = 0;
+  for (let i = 0; i < cfg.maxScrolls && idle < 3; i++) {
+    const oldest = [...seen.values()].reduce<string | undefined>((a, m) => (!a || m.time < a ? m.time : a), undefined);
+    if (oldest && Date.parse(oldest) <= since.getTime()) break;
+    const before = seen.size;
+    const vp = page.viewportSize() ?? { width: 1280, height: 800 };
+    await page.mouse.move(vp.width * 0.6, vp.height * 0.5);
+    await page.mouse.wheel(0, -4000);
+    await page.waitForTimeout(1500);
+    idle = seen.size === before ? idle + 1 : 0;
+  }
+  await page.close();
+  return [...seen.values()].filter((m) => Date.parse(m.time) >= since.getTime());
+}
+
+async function launch(playwright: any, profile: string, browser: TeamsSource['browser'], headless: boolean) {
+  const opts = { headless, viewport: { width: 1400, height: 900 }, locale: 'ja-JP' };
+  const open = async (extra: Record<string, unknown> = {}) => {
+    if (browser === 'chromium') return playwright.chromium.launchPersistentContext(profile, { ...opts, ...extra });
+    try {
+      return await playwright.chromium.launchPersistentContext(profile, { ...opts, ...extra, channel: browser });
+    } catch (e) {
+      throw new Error(`Không mở được ${browser} (${(e as Error).message.split('\n')[0]}). Đặt browser: chromium trong sources.yaml nếu máy không có ${browser}.`);
+    }
+  };
+  const ctx = await open();
+  if (!headless) return ctx;
+  // Headless browsers announce "HeadlessChrome" and Teams web then renders a blank page: relaunch with the
+  // same user agent minus that word.
+  const probe = await ctx.newPage();
+  const ua: string = await probe.evaluate(() => navigator.userAgent);
+  if (!/Headless/i.test(ua)) {
+    await probe.close();
+    return ctx;
+  }
+  await ctx.close();
+  return open({ userAgent: ua.replace(/HeadlessChrome/g, 'Chrome').replace(/Headless/g, '') });
+}
+
+/** Deep links (teams.microsoft.com/l/…) first ask "app or web?": choose the web app. */
+async function useWebApp(page: any) {
+  try {
+    const btn = page.getByRole('button', { name: /web app|Web アプリ|ứng dụng web|Use the web/i }).first();
+    if (await btn.isVisible({ timeout: 4000 })) await btn.click();
+  } catch {
+    /* no launcher page */
+  }
+}
 
 async function loadPlaywright(): Promise<any> {
   try {
@@ -240,26 +400,6 @@ async function openSession(playwright: any, root: string, cfg: TeamsSource, head
   }
 }
 
-async function launch(playwright: any, profile: string, browser: TeamsSource['browser'], headless: boolean) {
-  const opts = { headless, viewport: { width: 1400, height: 900 }, locale: 'ja-JP' };
-  if (browser === 'chromium') return playwright.chromium.launchPersistentContext(profile, opts);
-  try {
-    return await playwright.chromium.launchPersistentContext(profile, { ...opts, channel: browser });
-  } catch (e) {
-    throw new Error(`Không mở được ${browser} (${(e as Error).message.split('\n')[0]}). Đặt browser: chromium trong sources.yaml nếu máy không có ${browser}.`);
-  }
-}
-
-/** Deep links (teams.microsoft.com/l/…) first ask "app or web?": choose the web app. */
-async function useWebApp(page: any) {
-  try {
-    const btn = page.getByRole('button', { name: /web app|Web アプリ|ứng dụng web|Use the web/i }).first();
-    if (await btn.isVisible({ timeout: 4000 })) await btn.click();
-  } catch {
-    /* no launcher page */
-  }
-}
-
 /** Signed-in accounts as the page's own MSAL cache sees them; [] when it cannot tell. */
 async function readAccounts(page: any): Promise<SignedInAccount[]> {
   try {
@@ -279,6 +419,7 @@ async function readAccounts(page: any): Promise<SignedInAccount[]> {
 }
 
 const accountsText = (a: SignedInAccount[]) => [...new Set(a.map((x) => x.username))].join(', ') || '(chưa rõ)';
+const startUrl = (cfg: TeamsSource) => (cfg.conversations[0] ? webAppUrl(cfg.conversations[0].url) : 'https://teams.microsoft.com/');
 
 /**
  * Opens Teams in a visible browser with the source's profile so the user can sign in (MFA) once.
@@ -291,7 +432,7 @@ export async function teamsLogin(root: string, cfg: TeamsSource, env: Record<str
   let timer: NodeJS.Timeout | undefined;
   try {
     const page = session.context.pages()[0] ?? (await session.context.newPage());
-    await page.goto(cfg.conversations[0]?.url ?? 'https://teams.microsoft.com/', { waitUntil: 'domcontentloaded' });
+    await page.goto(startUrl(cfg), { waitUntil: 'domcontentloaded' });
     await useWebApp(page);
     log(`Phiên được lưu ở: ${session.profile}`);
     const expected = expectedAccounts(cfg, env);
@@ -351,7 +492,7 @@ export async function teamsStatus(root: string, sources: TeamsSource[], env: Rec
     const session = await openSession(playwright, root, group[0]!, true, log);
     try {
       const page = await session.context.newPage();
-      await page.goto(group[0]!.conversations[0]?.url ?? 'https://teams.microsoft.com/', { waitUntil: 'domcontentloaded', timeout: 90_000 });
+      await page.goto(startUrl(group[0]!), { waitUntil: 'domcontentloaded', timeout: 90_000 });
       await useWebApp(page);
       let accounts: SignedInAccount[] = [];
       for (let i = 0; i < 10 && !accounts.length && !LOGIN_URL.test(page.url()); i++) {

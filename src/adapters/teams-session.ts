@@ -2,7 +2,7 @@
 // default, never inside the git history, never opened by two pwiki runs at once, and signed in with the
 // account the source expects. Nothing here needs Playwright, so it is unit-tested directly.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { TeamsSource } from '../config.js';
@@ -38,6 +38,13 @@ export function migrateLegacyProfile(root: string, cfg: Pick<TeamsSource, 'name'
   if (!existsSync(join(legacy, 'Local State'))) return false;
   const target = profilePath(root, cfg);
   if (existsSync(target)) return false;
+  // Older docs suggested profileDir: .pwiki/teams-profile/chromium, i.e. a profile nested in the legacy one:
+  // moving the parent would drag that one along. Leave both alone; this source signs in afresh.
+  const nested = readdirSync(legacy, { withFileTypes: true }).filter((e) => e.isDirectory() && existsSync(join(legacy, e.name, 'Local State')));
+  if (nested.length) {
+    log(`  không chuyển phiên Teams cũ ở ${PROFILE_ROOT}/ vì trong đó có phiên khác (${nested.map((e) => e.name).join(', ')}): chạy "pwiki teams login --source ${cfg.name}"`);
+    return false;
+  }
   const tmp = `${legacy}.migrating`;
   renameSync(legacy, tmp);
   mkdirSync(legacy, { recursive: true });

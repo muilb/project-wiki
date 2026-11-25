@@ -48,6 +48,19 @@ describe('teams profile', () => {
     expect(migrateLegacyProfile(root, { name: 'teams-b' }, quiet)).toBe(false);
   });
 
+  it('leaves the old profile alone when another profile is nested in it (profileDir: .pwiki/teams-profile/chromium)', () => {
+    const root = tmp();
+    const legacy = join(root, '.pwiki/teams-profile');
+    mkdirSync(join(legacy, 'chromium'), { recursive: true });
+    writeFileSync(join(legacy, 'Local State'), '{}');
+    writeFileSync(join(legacy, 'chromium/Local State'), '{}');
+    const logs: string[] = [];
+    expect(migrateLegacyProfile(root, { name: 'teams-a' }, (m) => logs.push(m))).toBe(false);
+    expect(existsSync(join(legacy, 'chromium/Local State'))).toBe(true);
+    expect(existsSync(join(legacy, 'Local State'))).toBe(true);
+    expect(logs[0]).toMatch(/có phiên khác \(chromium\)/);
+  });
+
   it('refuses a profile inside the vault that git would commit', () => {
     const root = tmp();
     init(root, 'Demo', quiet);
