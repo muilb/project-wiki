@@ -162,7 +162,29 @@ export interface AccountCheck {
   warning?: string;
 }
 
-export function checkAccount(sourceName: string, signedIn: SignedInAccount[], expected: string[], tenantId?: string): AccountCheck {
+/**
+ * Edge signs in on its own with the account Windows is joined with (work PCs), even in pwiki's profile:
+ * signing in again there just brings the same account back. Playwright's Chromium has no such link.
+ */
+function wrongAccountFix(src: Pick<TeamsSource, 'name' | 'browser'>): string {
+  const relogin = `"pwiki teams login --source ${src.name}"`;
+  if (src.browser === 'msedge')
+    return (
+      `Edge thường tự đăng nhập bằng tài khoản gắn với Windows, nên đăng nhập lại trong Edge không giúp được: ` +
+      `đặt "browser: chromium" cho nguồn này (cài một lần: "npx playwright install chromium" trong thư mục project-wiki), ` +
+      `bỏ profileDir đang trỏ tới phiên Edge cũ (nếu có), rồi chạy ${relogin}. ` +
+      `Nếu tài khoản cần không phải của bạn, sửa ${accountEnvKey(src.name)} trong .env.`
+    );
+  return `Chạy ${relogin} bằng đúng tài khoản, hoặc sửa ${accountEnvKey(src.name)} trong .env.`;
+}
+
+export function checkAccount(
+  src: Pick<TeamsSource, 'name' | 'browser'>,
+  signedIn: SignedInAccount[],
+  expected: string[],
+  tenantId?: string,
+): AccountCheck {
+  const sourceName = src.name;
   if (!expected.length && !tenantId) return {};
   if (!signedIn.length) return { warning: 'không đọc được tài khoản đang đăng nhập Teams (định dạng có thể đã đổi), bỏ qua kiểm tra tài khoản' };
   const users = [...new Set(signedIn.map((a) => a.username))];
@@ -170,8 +192,7 @@ export function checkAccount(sourceName: string, signedIn: SignedInAccount[], ex
   if (!mine.length)
     return {
       error:
-        `Teams đang đăng nhập bằng ${users.join(', ')}, nhưng nguồn "${sourceName}" cần ${expected.join(' hoặc ')}. ` +
-        `Chạy "pwiki teams login --source ${sourceName}" bằng đúng tài khoản, hoặc sửa ${accountEnvKey(sourceName)} trong .env.`,
+        `Teams đang đăng nhập bằng ${users.join(', ')}, nhưng nguồn "${sourceName}" cần ${expected.join(' hoặc ')}. ${wrongAccountFix(src)}`,
     };
   // Tenant: only a warning, since how Teams caches guest sign-ins in other tenants is not verified yet.
   if (tenantId && mine.some((a) => a.tenantId) && !mine.some((a) => a.tenantId === tenantId))

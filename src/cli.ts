@@ -160,7 +160,7 @@ async function main(argv: string[]): Promise<number> {
       if (sub === 'status') return (await teamsStatus(root, v.source ? teams.filter((s) => s.name === v.source) : teams, env)) ? 0 : 1;
       const src = v.source ? teams.find((s) => s.name === v.source)! : teams[0]!;
       const accounts = await teamsLogin(root, src, env);
-      const r = checkAccount(src.name, accounts, expectedAccounts(src, env), tenantOf(src.conversations[0]?.url ?? ''));
+      const r = checkAccount(src, accounts, expectedAccounts(src, env), tenantOf(src.conversations[0]?.url ?? ''));
       if (r.error) {
         console.log(`✗ ${r.error}`);
         return 1;

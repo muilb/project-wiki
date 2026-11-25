@@ -255,7 +255,7 @@ Mỗi issue là một file `raw/jira/EMV-123.md` (trạng thái, ưu tiên, ngư
 **Khi máy gắn tài khoản công ty với Windows:**
 - Edge có thể tự đăng nhập profile của pwiki bằng tài khoản đó, kể cả khi bạn đã đăng nhập tài khoản khác. Khi đó Teams báo 「参加していないチャット…」, còn `collect` báo "không tìm thấy cuộc trò chuyện".
 - Cách xử lý: dùng `browser: chromium` (cài bằng `npx playwright install chromium` trong thư mục project-wiki) với một `profileDir` mới (ví dụ `.pwiki/teams-profile/chromium`), rồi chạy lại `pwiki teams login`.
-- Khai báo `account` (xem dưới) để `collect` dừng ngay và báo rõ khi trình duyệt đăng nhập nhầm tài khoản.
+- Khai báo `account` (xem dưới) để `login`, `status` và `collect` báo ngay khi trình duyệt đăng nhập nhầm tài khoản. Với nguồn dùng `msedge`, thông báo lỗi chỉ luôn cách chuyển sang `chromium`.
 
 
 #### Nhiều tài khoản

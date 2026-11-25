@@ -229,7 +229,7 @@ export const teamsAdapter: Adapter<TeamsSource> = async (cfg, ctx) => {
     }
     // Before reading anything: the wrong account would silently read nothing (or someone else's chats).
     const accounts = await readAccounts(page);
-    const accountCheck = checkAccount(cfg.name, accounts, expected);
+    const accountCheck = checkAccount(cfg, accounts, expected);
     if (accountCheck.error) throw new Error(accountCheck.error);
     if (accountCheck.warning) ctx.log(`  ⚠ ${accountCheck.warning}`);
     const warned = new Set<string>();
@@ -249,7 +249,7 @@ export const teamsAdapter: Adapter<TeamsSource> = async (cfg, ctx) => {
       const since = cursor[conv.name]?.last ? new Date(Date.parse(cursor[conv.name]!.last) - 3_600_000) : daysAgo(ctx.now, cfg.lookbackDays);
       const id = conversationIdOf(conv.url);
       // Teams web signs its chat-service requests for one tenant: a link into another tenant may fail.
-      const tenantWarning = checkAccount(cfg.name, accounts, expected, tenantOf(conv.url)).warning;
+      const tenantWarning = checkAccount(cfg, accounts, expected, tenantOf(conv.url)).warning;
       if (tenantWarning && tenantWarning !== accountCheck.warning && !warned.has(tenantWarning)) {
         warned.add(tenantWarning);
         ctx.log(`  ⚠ ${conv.name}: ${tenantWarning}`);
@@ -506,7 +506,7 @@ export async function teamsStatus(root: string, sources: TeamsSource[], env: Rec
       }
       log(`  đang đăng nhập: ${accountsText(accounts)}`);
       for (const { s, expected } of wants) {
-        const r = checkAccount(s.name, accounts, expected, tenantOf(s.conversations[0]?.url ?? ''));
+        const r = checkAccount(s, accounts, expected, tenantOf(s.conversations[0]?.url ?? ''));
         if (r.error) ok = false;
         const need = expected.length ? ` (cần ${expected.join(' hoặc ')})` : '';
         log(r.error ? `  ✗ ${s.name}: ${r.error}` : r.warning ? `  ⚠ ${s.name}${need}: ${r.warning}` : `  ✓ ${s.name}${need}`);

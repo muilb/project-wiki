@@ -109,6 +109,7 @@ describe('teams profile', () => {
 });
 
 describe('teams account', () => {
+  const EDGE = { name: 't', browser: 'msedge' } as const;
   const msal = (username: string, realm: string) =>
     JSON.stringify({ homeAccountId: `uid.${realm}`, environment: 'login.windows.net', realm, localAccountId: 'uid', username, name: 'X', authorityType: 'MSSTS' });
 
@@ -144,14 +145,19 @@ describe('teams account', () => {
 
   it('fails on the wrong account, warns when it cannot tell or the tenant looks wrong', () => {
     const signed = [{ username: 'hoa@corp.com', tenantId: TENANT }];
-    expect(checkAccount('t', signed, [])).toEqual({});
-    expect(checkAccount('t', signed, ['hoa@corp.com'], TENANT)).toEqual({});
-    expect(checkAccount('t', signed, ['pl@corp.com']).error).toMatch(/đăng nhập bằng hoa@corp\.com.*cần pl@corp\.com.*TEAMS_ACCOUNT_T/);
-    expect(checkAccount('t', [], ['pl@corp.com']).warning).toMatch(/không đọc được/);
-    expect(checkAccount('t', signed, ['hoa@corp.com'], GUEST_TENANT).warning).toMatch(/chưa có phiên ở tenant/);
-    expect(checkAccount('t', [...signed, { username: 'hoa@corp.com', tenantId: GUEST_TENANT }], ['hoa@corp.com'], GUEST_TENANT)).toEqual({});
+    expect(checkAccount(EDGE, signed, [])).toEqual({});
+    expect(checkAccount(EDGE, signed, ['hoa@corp.com'], TENANT)).toEqual({});
+    expect(checkAccount(EDGE, signed, ['pl@corp.com']).error).toMatch(/đăng nhập bằng hoa@corp\.com.*cần pl@corp\.com.*TEAMS_ACCOUNT_T/);
+    // Edge brings the Windows account back on every sign-in: point to Chromium instead of "sign in again".
+    expect(checkAccount(EDGE, signed, ['pl@corp.com']).error).toMatch(/Edge thường tự đăng nhập.*browser: chromium.*npx playwright install chromium.*pwiki teams login --source t/);
+    const chromium = checkAccount({ name: 't', browser: 'chromium' }, signed, ['pl@corp.com']).error!;
+    expect(chromium).toMatch(/Chạy "pwiki teams login --source t" bằng đúng tài khoản/);
+    expect(chromium).not.toMatch(/Edge|browser: chromium/);
+    expect(checkAccount(EDGE, [], ['pl@corp.com']).warning).toMatch(/không đọc được/);
+    expect(checkAccount(EDGE, signed, ['hoa@corp.com'], GUEST_TENANT).warning).toMatch(/chưa có phiên ở tenant/);
+    expect(checkAccount(EDGE, [...signed, { username: 'hoa@corp.com', tenantId: GUEST_TENANT }], ['hoa@corp.com'], GUEST_TENANT)).toEqual({});
     // Several accounts signed in in one profile: fine as long as one is allowed.
-    expect(checkAccount('t', [...signed, { username: 'me@khach.jp' }], ['me@khach.jp'])).toEqual({});
+    expect(checkAccount(EDGE, [...signed, { username: 'me@khach.jp' }], ['me@khach.jp'])).toEqual({});
   });
 
   it('validates account and profileDir in sources.yaml', () => {
