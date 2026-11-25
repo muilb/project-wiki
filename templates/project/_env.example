@@ -2,3 +2,6 @@
 TRACKER_PASSWORD=
 JIRA_EMAIL=
 JIRA_TOKEN=
+# Tài khoản Teams của chính bạn cho từng nguồn teams (ghi đè "account" trong sources.yaml).
+# Tên biến: TEAMS_ACCOUNT_<tên nguồn viết hoa, "-" thành "_">. Nhiều tài khoản: cách nhau bằng dấu phẩy.
+# TEAMS_ACCOUNT_TEAMS_SPEC=ban@congty.com

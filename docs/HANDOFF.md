@@ -26,6 +26,7 @@ Kết hợp với **[project-tracker](https://github.com/muilb/project-tracker)*
 | 2 | **AI chỉ đề xuất, PL duyệt** rồi mới gửi tracker (`tracker/outbox/` → `/sync-tracker`) | Cùng tinh thần "AI chỉ đề xuất" của project-tracker |
 | 3 | **Nguồn cắm thêm được:** Teams, git, Jira, file (file server, OneDrive), inbox, `command` (script tuỳ biến in JSON lines) | Mỗi dự án dùng công cụ khác nhau. Framework không hard-code |
 | 4 | **Teams không cần bot hay quyền admin:** Playwright với phiên đăng nhập lưu sẵn, bắt **JSON chatsvc** mà Teams web tự tải, không đọc DOM | Không có quyền tạo bot. Graph API cần admin consent |
+| 4b | **Mỗi nguồn Teams một phiên** (`.pwiki/teams-profile/<nguồn>/`), có thể đặt `profileDir` dưới `~` để nhiều vault dùng chung. Khai báo `account`, mỗi người ghi đè bằng `TEAMS_ACCOUNT_<NGUỒN>` trong `.env`. Phiên trong vault mà git không bỏ qua thì từ chối, phiên đang được dùng thì khoá | Nhiều tài khoản (công ty + khách cấp), mỗi thành viên tự đăng nhập, không đăng nhập lại cho từng dự án. Cookie không bao giờ vào git |
 | 5 | **`raw/` là git.** Nguồn thay đổi (ticket, file) thì ghi đè, git giữ lịch sử. `/ingest` đọc **git diff** kể từ lần trước | Giải quyết mâu thuẫn "raw bất biến" với việc nguồn bị sửa. LLM biết chính xác cái gì vừa đổi |
 | 6 | **Tracker không phải sửa gì:** pwiki đăng nhập Cognito giống web (`USER_PASSWORD_AUTH` + `REFRESH_TOKEN_AUTH`), gọi đúng các REST endpoint đang có | Vẫn có kiểm tra hợp lệ, phân quyền, cảnh báo như nhập tay. Dữ liệu chat của khách không lên AWS |
 | 7 | **Hợp đồng wiki ↔ tracker** (`schema/TRACKER-CONTRACT.md`). Không đẩy từng ticket Jira, chỉ đẩy ở mức quản lý | Tránh biến tracker thành bản sao của Jira |
@@ -91,7 +92,7 @@ test/             vitest: core, adapters, workflow, vault (40 test)
 | `pwiki upgrade` | Ghi đè file managed, sinh lại LAYOUT.md, tạo phần bố cục còn thiếu |
 | `pwiki layout` | In bố cục đang dùng |
 | `pwiki collect [--only a,b] [--record] [--headed] [--no-commit]` | Thu thập nguồn, kéo tracker, snapshot, commit |
-| `pwiki teams login [--source x]` | Đăng nhập Teams một lần (có MFA) |
+| `pwiki teams login [--source x]` / `pwiki teams status` | Đăng nhập Teams một lần (có MFA) / xem phiên và tài khoản của từng nguồn |
 | `pwiki ingest-plan [--batch 30]` / `pwiki ingest-done [file…]` | Lượt ingest theo git diff |
 | `pwiki snapshot` / `pwiki lint [--json] [--stale 14]` | Trang trạng thái / kiểm tra máy móc |
 | `pwiki tracker login\|pull\|outbox\|push [--dry-run]\|logout` | Đồng bộ project-tracker |
@@ -117,7 +118,7 @@ Giới hạn trường dữ liệu **bắt chước `api/src/schemas.ts`** của
 - adopt một bản dựng giống vault "brain-datahub": nhận đúng 14 khu vực, `moc: beside`, `type: pr`.
 
 **Chưa kiểm được:**
-- [ ] **Teams với tenant thật.** Định dạng chatsvc chưa công khai, cần chạy `--headed --record` để xem rồi chỉnh `parseMessages()`.
+- [ ] **Teams với tenant thật.** Định dạng chatsvc chưa công khai, cần chạy `--headed --record` để xem rồi chỉnh `parseMessages()`. Cũng cần xác nhận: tài khoản đọc từ cache MSAL trong localStorage (`accountsFromStorage()`) có đúng không, và tài khoản khách ở tenant khác hiện ra thế nào (cảnh báo `tenantId`).
 - [ ] Jira thật, cả Cloud và Server. Hiện mới test với API giả lập.
 - [ ] Mở `03_Dashboard.base`, `graph.json`, `app.json` trong **Obsidian thật**.
 - [ ] Chạy `/ingest`, `/sync-tracker`, `/lint`, `/weekly` trong Claude Code với dữ liệu thật, rồi chỉnh SCHEMA theo kết quả.

@@ -58,9 +58,21 @@ function writeManaged(root: string): { written: string[]; kept: string[] } {
   return { written, kept };
 }
 
+/** Appends the lines of `wanted` that `file` lacks; never rewrites what is there. */
+function appendIgnores(file: string, wanted: string): boolean {
+  const cur = existsSync(file) ? readFileSync(file, 'utf8') : '';
+  const have = cur.split(/\r?\n/);
+  const missing = wanted.split(/\r?\n/).filter((l) => l.trim() && !have.includes(l));
+  if (!missing.length) return false;
+  appendFileSync(file, `${!cur || cur.endsWith('\n') ? '' : '\n'}# pwiki\n${missing.join('\n')}\n`);
+  return true;
+}
+
 /** Managed files + LAYOUT.md + whatever the layout needs and is missing. Notes are never overwritten. */
 export function upgrade(root: string, log = console.log, config?: Config): { written: string[]; kept: string[] } {
   const r = writeManaged(root);
+  // New ignore rules (e.g. browser profiles holding sign-in cookies) must reach vaults made earlier.
+  if (appendIgnores(join(root, '.gitignore'), readFileSync(join(TEMPLATES, 'project', '_gitignore'), 'utf8'))) r.written.push('.gitignore');
   r.written.push(...ensureStructure(root, config ?? loadConfig(root), PKG_ROOT));
   for (const f of r.written) log(`  ghi ${f}`);
   for (const f of r.kept) log(`  giữ nguyên ${f} (đã tự sửa)`);
@@ -92,12 +104,7 @@ function writeProjectFiles(dir: string, o: ProjectFilesOpts, log: (m: string) =>
       .replaceAll('{{INBOX}}', o.inbox);
     if (existsSync(dest)) {
       if (rel === '.gitignore') {
-        const cur = readFileSync(dest, 'utf8');
-        const missing = text.split('\n').filter((l) => l.trim() && !cur.split(/\r?\n/).includes(l));
-        if (missing.length) {
-          appendFileSync(dest, `${cur.endsWith('\n') ? '' : '\n'}# pwiki\n${missing.join('\n')}\n`);
-          written.push(rel);
-        }
+        if (appendIgnores(dest, text)) written.push(rel);
       } else if (rel === 'CLAUDE.md') {
         const cur = readFileSync(dest, 'utf8');
         if (!cur.includes('.pwiki/SCHEMA.md')) {

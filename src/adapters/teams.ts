@@ -6,11 +6,23 @@
 // raw/<source>/<conversation>/<YYYY-MM-DD>.md, one block per message, merged by message id.
 // The response format is not a public API: run `pwiki collect --only <source> --record` to save what the
 // browser received under .pwiki/teams-debug/ and adjust parseMessages() if your tenant differs.
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join, relative } from 'node:path';
 import type { TeamsSource } from '../config.js';
 import { PWIKI_DIR } from '../state.js';
 import { dayIn, daysAgo, htmlToText, timeIn } from '../util.js';
+import {
+  accountsFromStorage,
+  assertNotCommitted,
+  checkAccount,
+  expectedAccounts,
+  lockHolder,
+  lockProfile,
+  migrateLegacyProfile,
+  profilePath,
+  type SignedInAccount,
+  tenantOf,
+} from './teams-session.js';
 import type { Adapter } from './types.js';
 
 export interface TeamsMessage {
@@ -117,15 +129,13 @@ export function writeConversation(
   return changed;
 }
 
+const LOGIN_URL = /login\.microsoftonline\.com|login\.live\.com/;
+
 export const teamsAdapter: Adapter<TeamsSource> = async (cfg, ctx) => {
-  let playwright: any;
-  try {
-    playwright = await import('playwright');
-  } catch {
-    throw new Error('Chưa cài Playwright: chạy "npm i -g playwright" (hoặc cài pwiki kèm optional dependencies)');
-  }
-  const profile = isAbsolute(cfg.profileDir) ? cfg.profileDir : resolve(ctx.root, cfg.profileDir);
-  const browser = await launch(playwright, profile, cfg.browser, !ctx.options.headed);
+  const playwright = await loadPlaywright();
+  const session = await openSession(playwright, ctx.root, cfg, !ctx.options.headed, ctx.log);
+  const expected = expectedAccounts(cfg, ctx.env);
+  const warned = new Set<string>();
   const cursor = { ...((ctx.cursor as Record<string, { last: string }> | undefined) ?? {}) };
   const debugDir = join(ctx.root, PWIKI_DIR, 'teams-debug');
   let total = 0;
@@ -133,7 +143,7 @@ export const teamsAdapter: Adapter<TeamsSource> = async (cfg, ctx) => {
   try {
     for (const conv of cfg.conversations) {
       const since = cursor[conv.name]?.last ? new Date(Date.parse(cursor[conv.name]!.last) - 3_600_000) : daysAgo(ctx.now, cfg.lookbackDays);
-      const page = await browser.newPage();
+      const page = await session.context.newPage();
       const seen = new Map<string, TeamsMessage>();
       page.on('response', async (res: any) => {
         const url: string = res.url();
@@ -152,10 +162,17 @@ export const teamsAdapter: Adapter<TeamsSource> = async (cfg, ctx) => {
       });
       await page.goto(conv.url, { waitUntil: 'domcontentloaded', timeout: 90_000 });
       await useWebApp(page);
-      if (/login\.microsoftonline\.com|login\.live\.com/.test(page.url())) {
+      if (LOGIN_URL.test(page.url())) {
         throw new Error(`Phiên đăng nhập Teams đã hết: chạy "pwiki teams login --source ${cfg.name}"`);
       }
       await page.waitForTimeout(8000);
+      // Before reading anything: the wrong account would silently collect nothing (or someone else's chats).
+      const check = checkAccount(cfg.name, await readAccounts(page), expected, tenantOf(conv.url));
+      if (check.error) throw new Error(check.error);
+      if (check.warning && !warned.has(check.warning)) {
+        warned.add(check.warning);
+        ctx.log(`  ⚠ ${conv.name}: ${check.warning}`);
+      }
       // Scroll the conversation up until we reach `since` or nothing new arrives.
       let idle = 0;
       for (let i = 0; i < cfg.maxScrolls && idle < 3; i++) {
@@ -177,10 +194,51 @@ export const teamsAdapter: Adapter<TeamsSource> = async (cfg, ctx) => {
       if (last) cursor[conv.name] = { last };
     }
   } finally {
-    await browser.close();
+    await session.close();
   }
   return { cursor, note: `${total} tin nhắn${recorded ? `, ghi ${recorded} response vào .pwiki/teams-debug/` : ''}` };
 };
+
+async function loadPlaywright(): Promise<any> {
+  try {
+    return await import('playwright');
+  } catch {
+    throw new Error('Chưa cài Playwright: chạy "npm i -g playwright" (hoặc cài pwiki kèm optional dependencies)');
+  }
+}
+
+interface Session {
+  context: any;
+  profile: string;
+  close(): Promise<void>;
+}
+
+/** Moves a pre-0.2 profile, refuses one git would commit, locks it, then opens the browser on it. */
+async function openSession(playwright: any, root: string, cfg: TeamsSource, headless: boolean, log: (m: string) => void): Promise<Session> {
+  migrateLegacyProfile(root, cfg, log);
+  const profile = profilePath(root, cfg);
+  assertNotCommitted(root, profile);
+  const release = lockProfile(profile, `${root} (nguồn ${cfg.name})`);
+  try {
+    const context = await launch(playwright, profile, cfg.browser, headless);
+    return {
+      context,
+      profile,
+      close: async () => {
+        try {
+          await context.close();
+        } catch {
+          /* already closed by the user */
+        } finally {
+          release();
+        }
+      },
+    };
+  } catch (e) {
+    release();
+    throw e;
+  }
+}
 
 async function launch(playwright: any, profile: string, browser: TeamsSource['browser'], headless: boolean) {
   const opts = { headless, viewport: { width: 1400, height: 900 }, locale: 'ja-JP' };
@@ -202,14 +260,119 @@ async function useWebApp(page: any) {
   }
 }
 
-/** Opens Teams in a visible browser with the source's profile so the user can sign in (MFA) once. */
-export async function teamsLogin(root: string, cfg: TeamsSource): Promise<void> {
-  const playwright: any = await import('playwright');
-  const profile = isAbsolute(cfg.profileDir) ? cfg.profileDir : resolve(root, cfg.profileDir);
-  const ctx = await launch(playwright, profile, cfg.browser, false);
-  const page = ctx.pages()[0] ?? (await ctx.newPage());
-  await page.goto(cfg.conversations[0]?.url ?? 'https://teams.microsoft.com/', { waitUntil: 'domcontentloaded' });
-  await useWebApp(page);
-  console.log('Đăng nhập Teams trong cửa sổ vừa mở (kể cả MFA). Khi đã thấy được tin nhắn, đóng cửa sổ trình duyệt để lưu phiên.');
-  await new Promise<void>((r) => ctx.on('close', () => r()));
+/** Signed-in accounts as the page's own MSAL cache sees them; [] when it cannot tell. */
+async function readAccounts(page: any): Promise<SignedInAccount[]> {
+  try {
+    const entries: Array<[string, string]> = await page.evaluate(() => {
+      const out: Array<[string, string]> = [];
+      for (const s of [localStorage, sessionStorage])
+        for (let i = 0; i < s.length; i++) {
+          const k = s.key(i);
+          if (k) out.push([k, s.getItem(k) ?? '']);
+        }
+      return out;
+    });
+    return accountsFromStorage(entries);
+  } catch {
+    return [];
+  }
+}
+
+const accountsText = (a: SignedInAccount[]) => [...new Set(a.map((x) => x.username))].join(', ') || '(chưa rõ)';
+
+/**
+ * Opens Teams in a visible browser with the source's profile so the user can sign in (MFA) once.
+ * Returns the accounts seen while the window was open, for the caller to check.
+ */
+export async function teamsLogin(root: string, cfg: TeamsSource, env: Record<string, string | undefined>, log: (m: string) => void = console.log): Promise<SignedInAccount[]> {
+  const playwright = await loadPlaywright();
+  const session = await openSession(playwright, root, cfg, false, log);
+  let accounts: SignedInAccount[] = [];
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    const page = session.context.pages()[0] ?? (await session.context.newPage());
+    await page.goto(cfg.conversations[0]?.url ?? 'https://teams.microsoft.com/', { waitUntil: 'domcontentloaded' });
+    await useWebApp(page);
+    log(`Phiên được lưu ở: ${session.profile}`);
+    const expected = expectedAccounts(cfg, env);
+    if (expected.length) log(`Nguồn "${cfg.name}" cần đăng nhập bằng: ${expected.join(' hoặc ')}`);
+    log('Đăng nhập Teams trong cửa sổ vừa mở (kể cả MFA). Khi đã thấy được tin nhắn, đóng cửa sổ trình duyệt để lưu phiên.');
+    // Poll while the user signs in: once the window is closed, the page can no longer be read.
+    timer = setInterval(async () => {
+      const now = await readAccounts(page);
+      if (now.length && accountsText(now) !== accountsText(accounts)) {
+        accounts = now;
+        log(`  đang đăng nhập: ${accountsText(now)}`);
+      }
+    }, 3000);
+    await new Promise<void>((r) => session.context.on('close', () => r()));
+  } finally {
+    if (timer) clearInterval(timer);
+    await session.close();
+  }
+  return accounts;
+}
+
+/** `pwiki teams status`: which profile each source uses, whether it is signed in, and with whom. */
+export async function teamsStatus(root: string, sources: TeamsSource[], env: Record<string, string | undefined>, log: (m: string) => void = console.log): Promise<boolean> {
+  const first = sources.find((s) => !s.profileDir);
+  if (first) migrateLegacyProfile(root, first, log);
+  const groups = new Map<string, TeamsSource[]>();
+  for (const s of sources) groups.set(profilePath(root, s), [...(groups.get(profilePath(root, s)) ?? []), s]);
+  let ok = true;
+  let playwright: any;
+  for (const [profile, group] of groups) {
+    const rel = relative(root, profile);
+    log(`▶ ${rel.startsWith('..') || isAbsolute(rel) ? profile : rel}  (nguồn: ${group.map((s) => s.name).join(', ')})`);
+    const wants = group.map((s) => ({ s, expected: expectedAccounts(s, env) }));
+    const declared = wants.filter((w) => w.expected.length);
+    if (declared.some((a) => declared.some((b) => !a.expected.some((x) => b.expected.includes(x))))) {
+      ok = false;
+      log('  ✗ các nguồn này dùng chung một phiên nhưng cần tài khoản khác nhau: đặt profileDir riêng cho từng nguồn');
+    }
+    try {
+      assertNotCommitted(root, profile);
+    } catch (e) {
+      ok = false;
+      log(`  ✗ ${(e as Error).message}`);
+      continue;
+    }
+    if (!existsSync(profile)) {
+      ok = false;
+      log(`  ✗ chưa đăng nhập: chạy "pwiki teams login --source ${group[0]!.name}"`);
+      continue;
+    }
+    const holder = lockHolder(profile);
+    if (holder) {
+      log(`  · đang được dùng bởi ${holder.owner} (từ ${holder.at}), bỏ qua kiểm tra phiên`);
+      continue;
+    }
+    playwright ??= await loadPlaywright();
+    const session = await openSession(playwright, root, group[0]!, true, log);
+    try {
+      const page = await session.context.newPage();
+      await page.goto(group[0]!.conversations[0]?.url ?? 'https://teams.microsoft.com/', { waitUntil: 'domcontentloaded', timeout: 90_000 });
+      await useWebApp(page);
+      let accounts: SignedInAccount[] = [];
+      for (let i = 0; i < 10 && !accounts.length && !LOGIN_URL.test(page.url()); i++) {
+        await page.waitForTimeout(2000);
+        accounts = await readAccounts(page);
+      }
+      if (LOGIN_URL.test(page.url())) {
+        ok = false;
+        log(`  ✗ phiên đã hết hạn: chạy "pwiki teams login --source ${group[0]!.name}"`);
+        continue;
+      }
+      log(`  đang đăng nhập: ${accountsText(accounts)}`);
+      for (const { s, expected } of wants) {
+        const r = checkAccount(s.name, accounts, expected, tenantOf(s.conversations[0]?.url ?? ''));
+        if (r.error) ok = false;
+        const need = expected.length ? ` (cần ${expected.join(' hoặc ')})` : '';
+        log(r.error ? `  ✗ ${s.name}: ${r.error}` : r.warning ? `  ⚠ ${s.name}${need}: ${r.warning}` : `  ✓ ${s.name}${need}`);
+      }
+    } finally {
+      await session.close();
+    }
+  }
+  return ok;
 }

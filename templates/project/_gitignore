@@ -1,5 +1,5 @@
 .env
-.pwiki/teams-profile/
+.pwiki/teams-profile*/
 .pwiki/teams-debug/
 .pwiki/tracker-session.json
 .pwiki/ingest-pending.json

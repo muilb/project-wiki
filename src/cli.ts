@@ -28,6 +28,7 @@ Khởi tạo
 Thu thập (raw/)
   pwiki collect [--only a,b] [--no-commit] [--record] [--headed]
   pwiki teams login [--source <tên>]        đăng nhập Teams một lần (mở trình duyệt)
+  pwiki teams status [--source <tên>]       nguồn nào dùng phiên nào, tài khoản nào, còn hạn không
 
 Ingest (Claude Code dùng trong /ingest)
   pwiki ingest-plan [--batch 30]            các file raw/ thay đổi từ lần ingest trước
@@ -148,13 +149,24 @@ async function main(argv: string[]): Promise<number> {
       return s.ok ? 0 : 1;
     }
     case 'teams': {
-      if (pos[0] !== 'login') break;
+      const sub = pos[0];
+      if (sub !== 'login' && sub !== 'status') break;
       const teams = config.sources.filter((s): s is TeamsSource => s.type === 'teams');
-      const src = v.source ? teams.find((s) => s.name === v.source) : teams[0];
-      if (!src) throw new ConfigError(v.source ? `Không có nguồn teams "${v.source}"` : 'sources.yaml chưa có nguồn type: teams');
-      const { teamsLogin } = await import('./adapters/teams.js');
-      await teamsLogin(root, src);
-      console.log('Đã lưu phiên Teams.');
+      if (v.source && !teams.some((s) => s.name === v.source)) throw new ConfigError(`Không có nguồn teams "${v.source}"`);
+      if (!teams.length) throw new ConfigError('sources.yaml chưa có nguồn type: teams');
+      const env = { ...loadEnv(root), ...process.env };
+      const { teamsLogin, teamsStatus } = await import('./adapters/teams.js');
+      const { checkAccount, expectedAccounts, tenantOf } = await import('./adapters/teams-session.js');
+      if (sub === 'status') return (await teamsStatus(root, v.source ? teams.filter((s) => s.name === v.source) : teams, env)) ? 0 : 1;
+      const src = v.source ? teams.find((s) => s.name === v.source)! : teams[0]!;
+      const accounts = await teamsLogin(root, src, env);
+      const r = checkAccount(src.name, accounts, expectedAccounts(src, env), tenantOf(src.conversations[0]?.url ?? ''));
+      if (r.error) {
+        console.log(`✗ ${r.error}`);
+        return 1;
+      }
+      if (r.warning) console.log(`⚠ ${r.warning}`);
+      console.log(accounts.length ? 'Đã lưu phiên Teams.' : 'Đã lưu phiên Teams. Chạy "pwiki teams status" để kiểm tra tài khoản.');
       return 0;
     }
     case 'ingest-plan': {

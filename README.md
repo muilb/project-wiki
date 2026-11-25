@@ -242,9 +242,36 @@ Mỗi issue là một file `raw/jira/EMV-123.md` (trạng thái, ưu tiên, ngư
   browser: msedge
 ```
 
-1. `pwiki teams login`: mở trình duyệt để bạn đăng nhập (kể cả MFA). Đóng cửa sổ là phiên được lưu vào `.pwiki/teams-profile/` (không commit).
+1. `pwiki teams login [--source teams-spec]`: mở trình duyệt để bạn đăng nhập (kể cả MFA). Đóng cửa sổ là phiên được lưu vào `.pwiki/teams-profile/<nguồn>/` (không commit).
 2. `pwiki collect`: trình duyệt chạy ẩn, mở từng kênh, cuộn lên để tải tin cũ. pwiki giữ lại **JSON mà chính Teams web tải về**, không đọc giao diện trang.
 3. Kết quả: `raw/teams-spec/<kênh>/<ngày>.md`, mỗi tin một khối có `msg:<id>` để trích dẫn. Tin bị sửa được thay bằng bản mới, tin bị xoá được đánh dấu.
+
+#### Nhiều tài khoản
+
+Mỗi nguồn `teams` có **phiên đăng nhập riêng** (thư mục profile trình duyệt), nên một vault đọc được Teams bằng nhiều tài khoản: khai báo một nguồn cho mỗi tài khoản rồi `pwiki teams login --source <nguồn>` cho từng nguồn.
+
+```yaml
+- name: teams-noibo                 # tài khoản công ty
+  type: teams
+  account: pl@congty.com
+  conversations: [...]
+- name: teams-khach                 # tài khoản khách hàng cấp
+  type: teams
+  account: pl@khachhang.co.jp
+  conversations: [...]
+```
+
+| Trường | Ý nghĩa |
+|---|---|
+| `account` | Tài khoản (hoặc danh sách) được phép. `collect` dừng nguồn đó nếu Teams đang đăng nhập bằng tài khoản khác, thay vì âm thầm không đọc được gì |
+| `TEAMS_ACCOUNT_<NGUỒN>` trong `.env` | Ghi đè `account` trên máy từng người, ví dụ `TEAMS_ACCOUNT_TEAMS_KHACH=ban@khachhang.co.jp`. Dùng khi **mỗi thành viên tự đăng nhập** bằng tài khoản của mình |
+| `profileDir` | Nơi lưu phiên. Mặc định `.pwiki/teams-profile/<nguồn>/`. Đặt dưới thư mục cá nhân, ví dụ `~/.pwiki/teams/pl@congty.com`, để **nhiều vault dùng chung một lần đăng nhập**. Hai nguồn trỏ cùng `profileDir` thì dùng chung phiên |
+
+- `pwiki teams status`: in từng phiên, nguồn nào dùng nó, đang đăng nhập bằng tài khoản nào, còn hạn hay đã hết. Nên chạy sau khi đăng nhập, và khi `collect` chạy tự động bị lỗi.
+- Một phiên chỉ mở được bởi **một** lần chạy pwiki. Vault khác đang dùng chung phiên thì pwiki báo và dừng nguồn đó, lần chạy sau sẽ đọc tiếp.
+- pwiki **từ chối** dùng thư mục phiên nằm trong vault mà git không bỏ qua, vì trong đó có cookie đăng nhập. `pwiki upgrade` thêm quy tắc vào `.gitignore` của vault cũ.
+- **Tài khoản khách ở tenant khác:** link "Copy link" của kênh có `tenantId`. Nếu tài khoản chưa có phiên ở tenant đó, `collect` và `status` cảnh báo. Khi `login`, hãy chuyển sang tenant của khách một lần trong Teams. Phần này chưa kiểm với tenant thật.
+- Phiên kiểu cũ (một thư mục `.pwiki/teams-profile/` chung) được tự chuyển sang nguồn teams đầu tiên, không phải đăng nhập lại.
 
 > ⚠️ **Đây là phần thử nghiệm.** Định dạng JSON nội bộ của Teams không phải API công khai, có thể khác theo tenant hoặc thay đổi theo thời gian. Lần đầu nên chạy `pwiki collect --only teams-spec --headed --record` để xem trình duyệt và lưu các response vào `.pwiki/teams-debug/`. Nếu không bắt được tin nhắn nào, gửi các file đó để chỉnh `parseMessages()` trong `src/adapters/teams.ts`.
 >

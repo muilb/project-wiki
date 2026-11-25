@@ -22,8 +22,14 @@ export const teamsSourceSchema = z.object({
     .min(1),
   /** First run (no cursor): how far back to read. */
   lookbackDays: z.number().int().min(1).max(365).default(14),
-  /** Profile folder of the browser that keeps the Teams sign-in (never committed). */
-  profileDir: z.string().default('.pwiki/teams-profile'),
+  /**
+   * Profile folder of the browser that keeps the Teams sign-in (never committed). Default:
+   * .pwiki/teams-profile/<name>. A path under ~ (e.g. ~/.pwiki/teams/me@corp.com) is shared by every
+   * vault that names it, so one sign-in serves several projects.
+   */
+  profileDir: z.string().min(1).optional(),
+  /** Account(s) this source must be signed in with. TEAMS_ACCOUNT_<NAME> in .env overrides it per member. */
+  account: z.union([z.email(), z.array(z.email()).min(1)]).optional(),
   /** msedge / chrome use the browser installed on the PC (better with company sign-in policies). */
   browser: z.enum(['msedge', 'chrome', 'chromium']).default('msedge'),
   /** How many times to scroll up per conversation looking for older messages. */

@@ -39,6 +39,8 @@ sources:
 #        url: https://teams.microsoft.com/l/channel/19%3A...%40thread.tacv2/...
 #    lookbackDays: 14
 #    browser: msedge # msedge | chrome | chromium
+#    account: pl@congty.com # tuỳ chọn: tài khoản được phép (hoặc danh sách); mỗi người ghi đè bằng TEAMS_ACCOUNT_TEAMS_SPEC trong .env
+#    profileDir: ~/.pwiki/teams/pl@congty.com # tuỳ chọn: dùng chung một lần đăng nhập cho nhiều vault (mặc định .pwiki/teams-profile/teams-spec)
 #
 #  - name: app
 #    type: git
